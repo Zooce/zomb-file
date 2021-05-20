@@ -1,0 +1,23 @@
+var-decl        -> "$" pair
+pair            -> key WHITESPACE+ ASSIGN WHITESPACE+ value NEWLINE
+key             -> STRING
+value           -> STRING | object | array | var-use
+object          -> "{ () pair* newline obj_end
+array           -> arr_start newline value* newline arr_end
+string          -> string_start unicode*
+special         -> dollar | assignment
+variable-decl   -> dollar pair
+varialbe-use    -> dollar key sub-key*
+sub-key         -> dot key
+
+WHITESPACE -> " " | "\t" | NEWLINE
+ASSIGN -> "="
+NEWLINE -> "\n" | "\r\n"
+keyword = obj_start | obj_end | arr_start | arr_end |  WHITESPACE | assignment | dollar | dot | escape
+obj_start -> {
+obj_end -> }
+arr_start -> [
+arr_end -> ]
+dollar -> $
+dot -> .
+escape -> \

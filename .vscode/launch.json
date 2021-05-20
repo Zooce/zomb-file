@@ -8,7 +8,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug",
-            "program": "${workspaceFolder}/zig-out/bin/zombie",
+            "program": "${workspaceFolder}/zig-out/bin/zombie-file",
             "args": [
                 "${workspaceFolder}/test.zombie"
             ],
