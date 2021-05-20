@@ -1,5 +1,5 @@
 const std = @import("std");
-const scanner = @import("scanner.zig");
+const Tokenizer = @import("scanner.zig").Tokenizer;
 
 const MAX_READ_LEN: usize = 100;
 
@@ -37,8 +37,8 @@ pub fn main() anyerror!void {
         std.log.info("Line: {s}", .{l});
     }
 
-    var tokenizer = scanner.makeTokenizer();
-    const token = try tokenizer.nextToken(file.reader());
+    var tokenizer = Tokenizer{ .reader = file.reader() };
+    const token = try tokenizer.nextToken();
 
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // const alloc = &gpa.allocator;

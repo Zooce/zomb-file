@@ -1,129 +1,158 @@
 const std = @import("std");
 const File = std.fs.File;
 
-pub fn makeTokenizer() Tokenizer {
-    return Tokenizer{ .scanner = Scanner{} };
-}
-
 /// Tokenizes...nuf sed
 pub const Tokenizer = struct {
+    // ---- Fields
+
+    /// The reader to use for tokenizing
+    reader: File.Reader,
+
+    /// The buffer which the reader will read to
+    buffer: [100]u8 = undefined,
+
+    /// The current number of bytes read into the buffer
+    buffer_size: usize = 0,
+
     /// The starting index of the current token
-    start: u32 = 0,
+    token_start: u32 = 0,
 
     /// The line where the current token lives (we start at the first line)
-    line: u32 = 1,
+    current_line: u32 = 1,
 
-    scanner: Scanner,
+    /// The scanner index (i.e. where we are in the current buffer)
+    scanner_index: u32 = 0,
+
+    // ---- Public Interface
 
     /// Get the next token from the given reader
-    pub fn nextToken(self: *Tokenizer, reader: anytype) !Token {
-        var buffer: [100]u8 = undefined;
-        var token = tokenblk: {
-            while (true) {
-                // ideally we'll read in enough bytes to find the next token on the first iteration, but you never know
-                const bytesRead = try reader.read(&buffer);
-                if (bytesRead == 0) {
-                    break :tokenblk Token{ .line = self.line, .token_type = TokenType.EOF };
-                }
-                self.scanner.init(buffer[0..bytesRead]);
-                const b = self.scanner.advance().?;
-                switch (b) {
-                    // single-charachter tokens
-                    ',' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.COMMA },
-                    '$' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.DOLLAR },
-                    '.' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.DOT },
-                    '=' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.EQUAL },
-                    '{' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.LEFT_CURLY },
-                    '(' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.LEFT_PAREN },
-                    '[' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.LEFT_SQUARE },
-                    '}' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.RIGHT_CURLY },
-                    ')' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.RIGHT_PAREN },
-                    ']' => break :tokenblk Token{ .offset = self.start, .size = 1, .line = self.line, .token_type = TokenType.RIGHT_SQUARE },
+    pub fn nextToken(self: *Tokenizer) !Token {
+        const token = tokenblk: {
+            try self.fillBuffer();
+            if (self.buffer_size == 0) {
+                break :tokenblk Token{ .line = self.current_line, .token_type = TokenType.EOF };
+            }
 
-                    // questionable ???
-                    '/' => {
-                        const peek = self.scanner.peek();
-                        if (peek != null and peek.? == '/') {
-                            break :tokenblk self.comment();
-                        } else {
-                            break :tokenblk self.identifier();
-                        }
-                    },
-                    '"' => break :tokenblk self.identifier(),
+            const byte = self.consume().?;
+            switch (byte) {
+                // single-charachter tokens
+                ',' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.COMMA },
+                '$' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.DOLLAR },
+                '.' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.DOT },
+                '=' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.EQUAL },
+                '{' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.LEFT_CURLY },
+                '(' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.LEFT_PAREN },
+                '[' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.LEFT_SQUARE },
+                '}' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.RIGHT_CURLY },
+                ')' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.RIGHT_PAREN },
+                ']' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.RIGHT_SQUARE },
 
-                    // multi-charactter tokens
+                // multi-charactter tokens
+                '/' => {
+                    const p = self.peek();
+                    if (p != null and p.? == '/') {
+                        break :tokenblk try self.comment();
+                    } else {
+                        break :tokenblk try self.string();
+                    }
+                },
+                '"' => break :tokenblk try self.string(),
 
 
-                    else => break :tokenblk Token{ .line = self.line, .token_type = TokenType.ERROR },
-                }
+                else => break :tokenblk Token{ .line = self.current_line, .token_type = TokenType.ERROR },
             }
         };
-        self.start += token.size; // TODO: is this correct?
+        self.token_start += token.size;
         return token;
     }
 
-    // The following functions are tokenizers for specific, multi-character tokens that take some work to scan.
+    // ---- Multi-Character Token Parsing
 
-    fn comment(self: *Tokenizer) Token {
-        while (self.scanner.peek()) |p| {
-            if (p == '\n') {
+    /// Parses a COMMENT token, which is two forward slashes followed by any number of any charcter
+    /// and ends when a NEWLINE is encountered.
+    fn comment(self: *Tokenizer) !Token {
+        var size: u32 = try self.skipToByte('\n');
+        return Token{ .offset = self.token_start, .size = size, .line = self.current_line, .token_type = TokenType.COMMENT };
+    }
+
+    /// Parses an string token.
+    fn string(self: *Tokenizer) !Token {
+        var size: u32 = 0;
+        while(true) {
+            size += try self.skipToByte('"');
+            if (self.peekPrev().? != '\\') {
                 break;
             }
-            _ = self.scanner.advance();
+            // consume the escaped double-quote and keep going
+            _ = self.consume();
         }
-        if (self.scanner.peek() == null) {
-            // It's possible that we scan to the end of the buffer before finding a newline - in this case, we need to:
-            //  - save the size of the current buffer (we'll need to add this to the final token size)
-            //  - use the reader to refill the buffer
-            //  - reinitialize the scanner with the new buffer
-            //  - keep going with this loop until we find a newline
-            std.log.err("TODO: we need to get more bytes!", .{});
-        }
-        return Token{ .offset = self.start, .size = self.scanner.index, .line = self.line, .token_type = TokenType.COMMENT };
+
+        return Token{ .line = self.current_line, .token_type = TokenType.ERROR };
     }
 
-    fn identifier(self: *Tokenizer) Token {
-        // TODO: implement me
-        return Token{ .line = self.line, .token_type = TokenType.ERROR };
-    }
-};
+    // ---- Scanning Operations
 
-/// The Scanner is just a wrapper around a slice of bytes we want to scan. Note that it only scans forward.
-const Scanner = struct {
-    /// The bytes to scan
-    bytes: []const u8 = undefined,
-
-    /// The current index in the slice of bytes
-    index: u32 = 0,
-
-    /// Initialize the Scanner with a new set of bytes
-    fn init(self: *Scanner, bytes: []const u8) void {
-        self.bytes = bytes;
-        self.index = 0;
-    }
-
-    /// Advances the current index to the next byte, consuming (and returning) the byte at the current index.
-    /// If the current index equals or exceeds `bytes.len`, then this returns `null`.
-    fn advance(self: *Scanner) ?u8 {
-        if (self.index == self.bytes.len) {
+    /// Advances the scanner index to the next byte, consuming (and returning) the previous byte.
+    /// If the scanner index equals the buffer size, then this returns `null`.
+    fn consume(self: *Tokenizer) ?u8 {
+        if (self.scanner_index == self.buffer_size) {
             return null;
         }
-        const b = self.bytes[self.index];
-        self.index += 1;
-        return b;
+        self.scanner_index += 1;
+        return self.buffer[self.scanner_index - 1];
     }
 
-    /// Returns the byte at the current index, or `null` if the current index equals or exceeds `bytes.len`.
-    fn peek(self: Scanner) ?u8 {
-        if (self.index >= self.bytes.len) {
+    /// Returns the byte at the scanner index, or `null` if the scanner index equals the buffer
+    /// size.
+    fn peek(self: Tokenizer) ?u8 {
+        if (self.scanner_index == self.buffer_size) {
             return null;
         }
-        return self.bytes[self.index];
+        return self.buffer[self.scanner_index];
+    }
+
+    /// Returns the byte at the previous scanner index, or `null` if either the scanner index is 0
+    /// or the buffer size is 0.
+    fn peekPrev(self: Tokenizer) ?u8 {
+        if (self.scanner_index == 0 or self.buffer_size == 0) {
+            return null;
+        }
+        return self.buffer[self.scanner_index - 1];
+    }
+
+    /// Advance the scanner index until the target byte is found, and return the number of bytes
+    /// skipped. All bytes leading to the target byte will be consumed, but the target byte will
+    /// not be consumed.
+    fn skipToByte(self: *Tokenizer, target: u8) !u32 {
+        var skipped: u32 = undefined;
+        outer: while (self.buffer_size > 0) {
+            while (self.peek()) |byte| {
+                if (byte == target) {
+                    skipped += self.scanner_index;
+                    break :outer;
+                }
+                _ = self.consume();
+            }
+
+            // If we're here, then we've scanned to the end of the buffer without finding the byte, so we need to read
+            // more bytes into the buffer and keep going. Since we use the scanner index to calculate token size, we
+            // also need to accumulate its value since refilling the buffer will reset it.
+            skipped += self.scanner_index;
+            try self.fillBuffer();
+        }
+        return skipped;
+    }
+
+    // ---- Buffer Operations
+
+    /// Fill the buffer with some bytes from the reader.
+    fn fillBuffer(self: *Tokenizer) !void {
+        self.buffer_size = try self.reader.read(&self.buffer);
     }
 };
 
 /// Token types
-pub const TokenType = packed enum(u8) {
+pub const TokenType = enum {
     // single character tokens
     COMMA, DOLLAR, DOT, EQUAL,
     LEFT_CURLY, RIGHT_CURLY,
@@ -131,7 +160,7 @@ pub const TokenType = packed enum(u8) {
     LEFT_SQUARE, RIGHT_SQUARE,
 
     // literals
-    COMMENT, IDENTIFIER, VARIABLE, VALUE,
+    COMMENT, STRING, VARIABLE,
 
     // others
     ERROR, EOF,
@@ -140,7 +169,7 @@ pub const TokenType = packed enum(u8) {
 /// Token - We store only the offset and the token size instead of slices becuase
 /// we don't want to deal with carrying around slices -- no need to store that kind
 /// of memory.
-pub const Token = packed struct {
+pub const Token = struct {
     /// The offset into the file where this token begins (max = 4,294,967,295)
     offset: u32 = 0,
 
@@ -153,16 +182,3 @@ pub const Token = packed struct {
     /// The type of this token (duh)
     token_type: TokenType,
 };
-
-test "size of token" {
-    // This "optimization" test is not necessary. I'm just playing around and learning Zig at this point.
-
-    const expect = @import("std").testing.expect;
-
-    var size: u8 = 1;   // TokenType
-    size += 4;          // offset
-    size += 4;          // size
-    size += 4;          // line
-
-    try expect(@sizeOf(Token) == size);
-}
