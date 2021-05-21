@@ -38,7 +38,7 @@ pub fn main() anyerror!void {
     }
 
     var tokenizer = makeTokenizer(file.reader());
-    const token = try tokenizer.nextToken();
+    const token = try tokenizer.next();
 
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // const alloc = &gpa.allocator;

@@ -22,14 +22,17 @@ pub fn Tokenizer(comptime ReaderType: type) type {
         /// The current number of bytes read into the buffer
         buffer_size: usize = 0,
 
-        /// The starting index of the current token
+        /// Where we are in the current buffer
+        buffer_cursor: u32 = 0,
+
+        /// The starting index (wrt. whatever the reader is reading) of the current token
         token_start: u32 = 0,
+
+        /// The token currently being discovered
+        token: Token = undefined,
 
         /// The line where the current token lives (we start at the first line)
         current_line: u32 = 1,
-
-        /// The cursor (i.e. where we are in the current buffer)
-        cursor: u32 = 0,
 
         // ---- Const Definitions
 
@@ -38,137 +41,136 @@ pub fn Tokenizer(comptime ReaderType: type) type {
         // ---- Public Interface
 
         /// Get the next token from the given reader
-        pub fn nextToken(self: *Self) !Token {
-            std.debug.print("> nextToken\n", .{});
-            const token = tokenblk: {
-                try self.fillBuffer();
-                if (self.buffer_size == 0) {
-                    break :tokenblk Token{ .line = self.current_line, .token_type = TokenType.EOF };
-                }
-
-                const byte = self.consume().?;
-                switch (byte) {
-                    // single-charachter tokens
-                    ',' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.COMMA },
-                    '$' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.DOLLAR },
-                    '.' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.DOT },
-                    '=' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.EQUAL },
-                    '{' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.LEFT_CURLY },
-                    '(' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.LEFT_PAREN },
-                    '[' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.LEFT_SQUARE },
-                    '}' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.RIGHT_CURLY },
-                    ')' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.RIGHT_PAREN },
-                    ']' => break :tokenblk Token{ .offset = self.token_start, .size = 1, .line = self.current_line, .token_type = TokenType.RIGHT_SQUARE },
-
-                    // multi-charactter tokens
-                    '/' => {
-                        if ((self.peek() orelse 0) == '/') {
-                            break :tokenblk try self.comment();
-                        } else {
-                            break :tokenblk self.errorToken();
-                        }
-                    },
-                    '"' => break :tokenblk try self.quoted_string(),
-
-
-                    else => break :tokenblk self.errorToken(),
-                }
+        pub fn next(self: *Self) !Token {
+            self.token = Token{
+                .offset = self.token_start,
+                .line = self.current_line,
             };
-            self.token_start += token.size;
-            return token;
+
+            try self.fillBuffer();
+            if (self.buffer_size == 0) {
+                self.token.token_type = TokenType.EOF;
+                return self.token;
+            }
+
+            const byte = self.consume().?;
+            switch (byte) {
+                // single-character tokens
+                ',' => { self.token.size = 1; self.token.token_type = TokenType.COMMA; },
+                '$' => { self.token.size = 1; self.token.token_type = TokenType.DOLLAR; },
+                '.' => { self.token.size = 1; self.token.token_type = TokenType.DOT; },
+                '=' => { self.token.size = 1; self.token.token_type = TokenType.EQUAL; },
+                '{' => { self.token.size = 1; self.token.token_type = TokenType.LEFT_CURLY; },
+                '(' => { self.token.size = 1; self.token.token_type = TokenType.LEFT_PAREN; },
+                '[' => { self.token.size = 1; self.token.token_type = TokenType.LEFT_SQUARE; },
+                '}' => { self.token.size = 1; self.token.token_type = TokenType.RIGHT_CURLY; },
+                ')' => { self.token.size = 1; self.token.token_type = TokenType.RIGHT_PAREN; },
+                ']' => { self.token.size = 1; self.token.token_type = TokenType.RIGHT_SQUARE; },
+
+                // multi-character tokens
+                '/' => {
+                    if ((self.peek() orelse 0) == '/') {
+                        try self.comment();
+                    } else {
+                        self.errorToken();
+                    }
+                },
+                '"' => try self.quoted_string(),
+
+
+                else => {}
+            }
+            self.token_start += self.token.size;
+            return self.token;
         }
 
         // ---- Multi-Character Token Parsing
 
-        /// Parses a COMMENT token, which is two forward slashes followed by any number of any charcter
-        /// and ends when a NEWLINE is encountered.
-        fn comment(self: *Self) !Token {
-            std.debug.print("> comment\n", .{});
-            var size: u32 = try self.skipToByte('\n');
-            return Token{ .offset = self.token_start, .size = size, .line = self.current_line, .token_type = TokenType.COMMENT };
+        /// Parses a COMMENT token, which is two forward slashes followed by any number of any
+        /// character and ends when a NEWLINE or EOF is encountered.
+        fn comment(self: *Self) !void {
+            self.token.token_type = TokenType.COMMENT;
+            _ = try self.skipToBytes("\n"); // EOF is fine
         }
 
         /// Parses a quoted string token.
-        fn quoted_string(self: *Self) !Token {
-            var size: u32 = 0;
-            while(true) {
-                size += try self.skipToByte('"');
-                if ((self.peekPrev() orelse 0) != '\\') {
-                    // consume the ending quote
-                    _ = self.consume();
-                    break;
+        fn quoted_string(self: *Self) !void {
+            while(try self.skipToBytes("\\\"")) {
+                switch (self.peek().?) {
+                    '\\' => {
+                        // consume the escape byte and the byte it's escaping
+                        _ = self.consume();
+                        _ = self.consume();
+                    },
+                    '"' => {
+                        // consume the ending double-quote and return
+                        _ = self.consume();
+                        self.token.token_type = TokenType.STRING;
+                        return;
+                    },
+                    else => unreachable,
                 }
-                // consume the escaped double-quote and keep going
-                _ = self.consume();
             }
-
-            if ((self.peek() orelse 0) != '"') {
-                return self.errorToken();
-            }
-            return Token{ .offset = self.token_start, .size = size, .line = self.current_line, .token_type = TokenType.STRING };
+            // if we're here, that's an error
+            self.errorToken();
         }
 
         // ---- Common Token Generators
 
-        fn errorToken(self: Self) Token {
-            return Token{ .line = self.current_line, .token_type = TokenType.ERROR };
+        fn errorToken(self: *Self) void {
+            self.token.token_type = TokenType.ERROR;
+            self.token.size = 0;
         }
 
         // ---- Scanning Operations
 
-        /// Advances the cursor to the next byte, consuming (and returning) the previous byte.
-        /// If the cursor equals the buffer size, then this returns `null`.
+        /// Consumes the current buffer byte (pointed to by the buffer cursor), which (in essence)
+        /// adds it to the current token. If the buffer is depleted then this returns `null`
+        /// otherwise it returns the consumed byte.
         fn consume(self: *Self) ?u8 {
             if (self.bufferDepleted()) {
                 return null;
             }
-            self.cursor += 1;
-            return self.buffer[self.cursor - 1];
+            self.token.size += 1;
+            self.buffer_cursor += 1;
+            return self.buffer[self.buffer_cursor - 1];
         }
 
-        /// Returns the byte at the cursor, or `null` if the cursor equals the buffer size.
+        /// Returns the byte at the buffer cursor, or `null` if the buffer cursor equals the buffer
+        /// size.
         fn peek(self: Self) ?u8 {
             if (self.bufferDepleted()) {
                 return null;
             }
-            return self.buffer[self.cursor];
+            return self.buffer[self.buffer_cursor];
         }
 
-        /// Returns the byte at the previous cursor, or `null` if either the cursor is 0
-        /// or the buffer size is 0.
-        fn peekPrev(self: Self) ?u8 {
-            if (self.cursor == 0 or self.buffer_size == 0) {
-                return null;
-            }
-            return self.buffer[self.cursor - 1];
-        }
-
-        /// Move the cursor forward until the target byte is found, and return the number of bytes
-        /// skipped. All bytes leading to the target byte will be consumed, but the target byte will
-        /// not be consumed.
-        fn skipToByte(self: *Self, target: u8) !u32 {
-            var skipped: u32 = 0;
-            outer: while (self.buffer_size > 0) {
+        /// Move the buffer cursor forward until one of the target bytes is found. All bytes leading
+        /// to the discovered target byte will be consumed, but that target byte will not be
+        /// consumed. If we can't find any of the target bytes, we return `false` otherwise we
+        /// return `true`.
+        fn skipToBytes(self: *Self, targets: []const u8) !bool {
+            while (self.buffer_size > 0) {
                 while (self.peek()) |byte| {
-                    if (byte == target) {
-                        skipped += self.cursor;
-                        break :outer;
+                    for (targets) |target| {
+                        if (byte == target) {
+                            return true;
+                        }
                     }
                     _ = self.consume();
                 }
 
                 // If we're here, then we've scanned to the end of the buffer without finding the byte, so we need to
-                // read more bytes into the buffer and keep going. Since we use the cursor to calculate token size, we
-                // also need to accumulate its value since refilling the buffer will reset it.
-                skipped += self.cursor;
+                // read more bytes into the buffer and keep going.
                 try self.fillBuffer();
             }
-            return skipped;
+            // We didn't find any of the specified bytes
+            return false;
         }
 
-        /// Checks to see if the cursor is at the end of the buffer.
+        /// Checks to see if the buffer cursor is at the end of the buffer.
         fn bufferDepleted(self: Self) callconv(.Inline) bool {
-            return self.cursor == self.buffer_size;
+            return self.buffer_cursor == self.buffer_size;
         }
 
         // ---- Buffer Operations
@@ -177,7 +179,7 @@ pub fn Tokenizer(comptime ReaderType: type) type {
         fn fillBuffer(self: *Self) !void {
             if (self.bufferDepleted()) {
                 self.buffer_size = try self.reader.read(&self.buffer);
-                self.cursor = 0;
+                self.buffer_cursor = 0;
             }
         }
     };
@@ -198,21 +200,22 @@ pub const TokenType = enum {
     ERROR, EOF,
 };
 
-/// Token - We store only the offset and the token size instead of slices becuase
-/// we don't want to deal with carrying around slices -- no need to store that kind
-/// of memory.
+/// Token - We store only the starting offset and the size instead of slices because we don't want
+/// to deal with carrying around pointers and all of the stuff that goes with that.
 pub const Token = struct {
+    const Self = @This();
+
     /// The offset into the file where this token begins (max = 4,294,967,295)
     offset: u32 = 0,
 
-    /// The length of this token (max length = 4,294,967,295)
+    /// The number of bytes in this token (max length = 4,294,967,295)
     size: u32 = 0,
 
     /// The line in the file where this token was discovered (max = 4,294,967,295)
-    line: u32,
+    line: u32 = undefined,
 
     /// The type of this token (duh)
-    token_type: TokenType,
+    token_type: TokenType = TokenType.ERROR,
 };
 
 
@@ -252,7 +255,7 @@ test "comment token" {
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader.reader());
 
-    var token = try tokenizer.nextToken();
+    var token = try tokenizer.next();
     try expectEqual(@as(u32, 0), token.offset);
     try expectEqual(str.len, token.size);
     try expectEqual(@as(u32, 1), token.line);
@@ -264,7 +267,7 @@ test "quoted string token" {
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader.reader());
 
-    var token = try tokenizer.nextToken();
+    var token = try tokenizer.next();
     try expectEqual(@as(u32, 0), token.offset);
     try expectEqual(str.len, token.size);
     try expectEqual(@as(u32, 1), token.line);

@@ -102,3 +102,22 @@ loop {
 Calling `file.reader()` multiple times, will give back the same reader -- meaning it will still be at the same offset as it was before.
 
 If you want to read from a previous location in the file, use `File`'s `seek*` functions, then use the `Reader` to read.
+```
+
+## Debugging with `lldb`
+
+- Install `lldb` with `$ sudo apt install lldb`.
+- Start `lldb` with `$ lldb`
+- Tell it where the executable is with `$ (lldb) file <path to the executable`
+    - The main executable is in `zig-out/bin/zombie-file`
+    - The test executable is in `src/zig-cache/o/<hash>/test`
+- Place a breakpoint with `$ (lldb) breakpoint set -f <filename (not the path)> -l <line number>`
+    - Or `b <filename (not the path)>:<line number>`
+- List all the breakpoints with `$ (lldb) br l`
+- Run the program with `$ (lldb) r <args>`
+- Examine a variable with `$ (lldb) p <variable>`
+- Examine all local arguments and variables in the current frame with `$ (lldb) fr v`
+- Examine `*self` struct fields with `$ (lldb) v *self`
+- Show the current frame and where you are with `$ (lldb) f`
+- Continue to the next breakpoint with `$ (lldb) thread continue`
+- Delete a breakpoint with `$ (lldb) br del <breakpoint number>`
