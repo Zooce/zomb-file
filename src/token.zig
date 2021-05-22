@@ -338,6 +338,19 @@ const TokenTester = struct {
     }
 };
 
+test "eof" {
+    const str = "// comment";
+    var string_reader = StringReader.init(str);
+    var tokenizer = makeTokenizer(string_reader.reader());
+
+    _ = try tokenizer.next(); // ignore the COMMENT token (there's already a test for these)
+    var token = try tokenizer.next();
+    try expectEqual(str.len, token.offset);
+    try expectEqual(@as(usize, 0), token.size);
+    try expectEqual(@as(usize, 1), token.line);
+    try expectEqual(TokenType.EOF, token.token_type);
+}
+
 test "comment" {
     const str = "// this is a comment";
     var string_reader = StringReader.init(str);
