@@ -1,19 +1,22 @@
 // Syntax Grammar
 
 file            -> declaration* EOF
-declaration     -> var-decl | fun-decl | pair | comment
+declaration     -> var-decl | fun-decl | var-set-decl | pair | comment
 comment         -> SLASH SLASH <any non-control unicode character>* NEWLINE
-var-decl        -> DOLLAR STRING assignment
-fun-decl        -> DOLLAR STRING LEFT_PAREN ( STRING ( COMMA STRING )* )* RIGHT_PAREN assignment
-pair            -> STRING assignment
+var-decl        -> DOLLAR string assignment
+fun-decl        -> DOLLAR string LEFT_PAREN ( string ( COMMA string )* )* RIGHT_PAREN assignment
+var-set-decl    -> DOLLAR string EQUAL LEFT_PAREN ( string ( COMMA string )* )+ RIGHT_PAREN NEWLINE
+pair            -> string assignment
 assignment      -> EQUAL value NEWLINE
-value           -> STRING | escaped_string | object | array | var-use
+value           -> string | object | array | var-use
 object          -> LEFT_CURLY pair ( COMMA pair )* RIGHT_CURLY
 array           -> LEFT_SQUARE value ( COMMA value )* RIGHT_SQUARE
-escaped_string  -> QUOTE <any non-control unicode character, except QUOTE must be escaped with BACKSLASH>* QUOTE
-var-use         -> DOLLAR STRING ( DOT STRING )*
-fun-use         -> DOLLAR STRING LEFT_PAREN ( param ( COMMA param )* )* RIGHT_PAREN
-param           -> STRING | var-use | fun-use
+string          -> STRING | escaped_string
+escaped_string  -> QUOTE <any unicode character, except QUOTE must be escaped with '\'>* QUOTE
+var-use         -> DOLLAR string ( DOT string )*
+fun-use         -> DOLLAR string LEFT_PAREN ( param ( COMMA param )* )* RIGHT_PAREN
+param           -> string | var-use | fun-use
+whitespace      -> SPACE | NEWLINE | TAB
 
 // Lexical Grammar
 
@@ -29,5 +32,5 @@ RIGHT_CURLY     -> }
 RIGHT_PAREN     -> )
 RIGHT_SQUARE    -> ]
 SLASH           -> /
-STRING          -> <any unicode character>*
+STRING          -> <any unicode character, except ' ' and ',' must be escaped with '\'>*
 QUOTE           -> "

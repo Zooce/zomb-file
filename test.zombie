@@ -1,7 +1,7 @@
 // Variable - these are basic text-replacement structures.
 //  EX:  theme = $name
 //  EX:  settings = $white_foreground
-$name = Zooce Dark
+$name = "Zooce Dark"
 $white_foreground = {
     foreground = $colors.white
 }
@@ -34,7 +34,7 @@ $" = {\""(" = ") = {
 
 // Key-Value Pairs
 "$schema" = vscode://schemas/color-theme
-name = Zooce Dark
+name = "Zooce Dark"
 type = Dark
 colors = {
     editor.foreground = $colors.white,
