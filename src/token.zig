@@ -308,67 +308,44 @@ const StringReader = struct {
     }
 };
 
-const TokenTester = struct {
-    expectedSlice: []const u8,
-    expectedOffset: usize,
-    expectedLine: usize,
-    expectedType: TokenType,
-
-    const Self = @This();
-
-    fn init(slice: []const u8, offset: usize, line: usize, token_type: TokenType) Self {
-        return Self{
-            .expectedSlice = slice,
-            .expectedOffset = offset,
-            .expectedLine = line,
-            .expectedType = token_type,
-        };
-    }
-
-    fn nextOffset(self: Self) usize {
-        return self.expectedOffset + self.expectedSlice.len;
-    }
-
-    fn expect(self: Self, token: Token, str: []const u8) !void {
-        try expectEqual(self.expectedOffset, token.offset);
-        try expectEqual(self.expectedSlice.len, token.size);
-        try expectEqual(self.expectedLine, token.line);
-        try expectEqual(self.expectedType, token.token_type);
-        try expectEqualSlices(u8, self.expectedSlice, str[token.offset..token.offset + token.size]);
-    }
-};
+fn expectToken(orig_str: []const u8, expected_token: Token, actual_token: Token) !void {
+    try expectEqual(expected_token.offset, actual_token.offset);
+    try expectEqual(expected_token.size, actual_token.size);
+    try expectEqual(actual_token.line, actual_token.line);
+    try expectEqual(actual_token.token_type, actual_token.token_type);
+    try expectEqualSlices(
+        u8,
+        orig_str[expected_token.offset..expected_token.offset + expected_token.size],
+        orig_str[actual_token.offset..actual_token.offset + actual_token.size]
+    );
+}
 
 test "eof" {
     const str = "// comment";
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader.reader());
+    const expected_token = Token{ .offset = str.len, .size = 0, .line = 1, .token_type = TokenType.EOF };
 
     _ = try tokenizer.next(); // ignore the COMMENT token (there's already a test for these)
-    var token = try tokenizer.next();
-    try expectEqual(str.len, token.offset);
-    try expectEqual(@as(usize, 0), token.size);
-    try expectEqual(@as(usize, 1), token.line);
-    try expectEqual(TokenType.EOF, token.token_type);
+    try expectToken(str, expected_token, try tokenizer.next());
 }
 
 test "comment" {
     const str = "// this is a comment";
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader.reader());
+    const expected_token = Token{ .offset = 0, .size = str.len, .line = 1, .token_type = TokenType.COMMENT };
 
-    var tester = TokenTester.init("// this is a comment", 0, 1, TokenType.COMMENT);
-    var token = try tokenizer.next();
-    try tester.expect(token, str);
+    try expectToken(str, expected_token, try tokenizer.next());
 }
 
 test "quoted string" {
     const str = "\"this is a \\\"quoted\\\" string\"";
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader.reader());
+    const expected_token = Token{ .offset = 0, .size = str.len, .line = 1, .token_type = TokenType.STRING };
 
-    var tester = TokenTester.init(str, 0, 1, TokenType.STRING);
-    var token = try tokenizer.next();
-    try tester.expect(token, str);
+    try expectToken(str, expected_token, try tokenizer.next());
 }
 
 test "strings" {
@@ -376,41 +353,19 @@ test "strings" {
     const str = "I am.a,bunch\nstrings";
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader.reader());
+    const testTokens = [_]Token{
+        Token{ .offset = 0, .size = 1, .line = 1, .token_type = TokenType.STRING },     // I
+        Token{ .offset = 1, .size = 1, .line = 1, .token_type = TokenType.WHITESPACE }, // <space>
+        Token{ .offset = 2, .size = 2, .line = 1, .token_type = TokenType.STRING },     // am
+        Token{ .offset = 4, .size = 1, .line = 1, .token_type = TokenType.DOT },        // .
+        Token{ .offset = 5, .size = 1, .line = 1, .token_type = TokenType.STRING },     // a
+        Token{ .offset = 6, .size = 1, .line = 1, .token_type = TokenType.COMMA },      // ,
+        Token{ .offset = 7, .size = 5, .line = 1, .token_type = TokenType.STRING },     // bunch
+        Token{ .offset = 12, .size = 1, .line = 1, .token_type = TokenType.NEWLINE },   // \n
+        Token{ .offset = 13, .size = 7, .line = 1, .token_type = TokenType.STRING },    // strings
+    };
 
-    var tester = TokenTester.init("I", 0, 1, TokenType.STRING);
-    var token = try tokenizer.next();
-    try tester.expect(token, str);
-
-    tester = TokenTester.init(" ", tester.nextOffset(), 1, TokenType.WHITESPACE);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
-
-    tester = TokenTester.init("am", tester.nextOffset(), 1, TokenType.STRING);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
-
-    tester = TokenTester.init(".", tester.nextOffset(), 1, TokenType.DOT);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
-
-    tester = TokenTester.init("a", tester.nextOffset(), 1, TokenType.STRING);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
-    try tester.expect(token, str);
-
-    tester = TokenTester.init(",", tester.nextOffset(), 1, TokenType.COMMA);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
-
-    tester = TokenTester.init("bunch", tester.nextOffset(), 1, TokenType.STRING);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
-
-    tester = TokenTester.init("\n", tester.nextOffset(), 1, TokenType.NEWLINE);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
-
-    tester = TokenTester.init("strings", tester.nextOffset(), 2, TokenType.STRING);
-    token = try tokenizer.next();
-    try tester.expect(token, str);
+    for (testTokens) |expected_token| {
+        try expectToken(str, expected_token, try tokenizer.next());
+    }
 }
