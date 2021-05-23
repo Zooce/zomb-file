@@ -5,14 +5,14 @@ declaration     -> var-decl | fun-decl | var-set-decl | pair | comment
 comment         -> SLASH SLASH <any non-control unicode character>* NEWLINE
 var-decl        -> DOLLAR string assignment
 fun-decl        -> DOLLAR string LEFT_PAREN ( string ( COMMA string )* )* RIGHT_PAREN assignment
-var-set-decl    -> DOLLAR string EQUAL LEFT_PAREN ( string ( COMMA string )* )+ RIGHT_PAREN NEWLINE
+var-set-decl    -> DOLLAR string EQUAL LEFT_PAREN ( string ( COMMA string )* )+ COMMA? RIGHT_PAREN NEWLINE
 pair            -> string assignment
 assignment      -> EQUAL value NEWLINE
 value           -> string | object | array | var-use
-object          -> LEFT_CURLY pair ( COMMA pair )* RIGHT_CURLY
-array           -> LEFT_SQUARE value ( COMMA value )* RIGHT_SQUARE
-string          -> STRING | escaped_string
-escaped_string  -> QUOTE <any unicode character, except QUOTE must be escaped with '\'>* QUOTE
+object          -> LEFT_CURLY pair ( COMMA pair )* COMMA? RIGHT_CURLY
+array           -> LEFT_SQUARE value ( COMMA value )* COMMA? RIGHT_SQUARE
+string          -> STRING | quoted_string
+quoted_string   -> QUOTE <any unicode character, except QUOTE must be escaped with '\'>* QUOTE
 var-use         -> DOLLAR string ( DOT string )*
 fun-use         -> DOLLAR string LEFT_PAREN ( param ( COMMA param )* )* RIGHT_PAREN
 param           -> string | var-use | fun-use
@@ -34,3 +34,57 @@ RIGHT_SQUARE    -> ]
 SLASH           -> /
 STRING          -> <any unicode character, except ' ' and ',' must be escaped with '\'>*
 QUOTE           -> "
+
+// PATTERNS
+
+$KEY = ( KEY, KEY, KEY )        -> A "Macro Set".
+$KEY(PARAM, PARAM) = VALUE      -> A "Macro Function".
+$KEY = { KEY = VALUE }          -> A "Macro Object".
+$KEY = [ VALUE, VALUE, $KEY ]   -> A "Macro Array".
+
+KEY = VALUE                     -> A key-value pair
+"KEY" = VALUE                   -> A key-value pair (with a quoted KEY)
+KEY = { KEY = VALUE }           -> A key-object pair.
+KEY = [ VALUE, VALUE, VALUE ]   -> A key-array pair.
+KEY = $KEY                      -> Using a "Macro" or "Macro Object" or "Macro Array" as a value.
+KEY = $KEY.KEY                  -> Using a value from a "Macro Set" as a value.
+KEY = $KEY(VALUE, $KEY)         -> Using a "Macro Function" with a regular value and a "Macro" or "Macro Object" or "Macro Array" or "Macro Function" as a value
+
+// Simple recursion -- forbidden
+
+$name(n) = {
+    name = $name($n)  <-- found outer function used inside the same function
+}
+
+// Nested recurssion -- forbidden
+//
+//  my_name = $name(Zooce)
+//
+//  -> $name(Zooce) -> $cool_person(Zooce) -> $name(Zooce)
+//     ^......................................! Error: `$name` is already in this macro chain. All recursion is forbidden.
+
+$name(n) = {
+    name = $cool_person($n)  <-- inner function call also calls the outer function (and vise versa)
+}
+$cool_person(p) = {
+    cool = $name($p)  <-- inner function call also calls the outer function (and vise versa)
+}
+
+// Special delimiters that can only be used in KEYs or VALUEs that are double-quoted
+
+'\t' = 0x09 = ✓ -> Horizontal Tab
+'\n' = 0x0A = ✓ -> Line Feed
+'\r' = 0x0D = ✓ -> Carriage Return
+' '  = 0x20 = ✓ -> Space
+'"'  = 0x22 = ✓ -> Quotation Mark
+'$'  = 0x24 = ✓ -> Dollar Sign
+'('  = 0x28 = ✓ -> Left Paren
+')'  = 0x29 = ✓ -> Right Paren
+','  = 0x2C = ✓ -> Comma
+'.'  = 0x2E = ✓ -> Full Stop
+'/'  = 0X2F = ✓ -> Solidus (x2)
+'='  = 0x3D = ✓ -> Equal Sign
+'['  = 0x5B = ✓ -> Left Square
+']'  = 0x5D = ✓ -> Right Square
+'{'  = 0x7B = ✓ -> Left Curly
+'}'  = 0x7D = ✓ -> Right Curly

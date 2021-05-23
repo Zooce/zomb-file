@@ -1,6 +1,6 @@
 # Zombie
 
-Welcome! This is the `Zombie` data-file format. It's like JSON but without all the quotes and a couple of nifty features. Let's check it out!
+Welcome! This is the `Zombie` data-file format. It's like JSON but with macros!
 
 ## Basics
 
@@ -121,3 +121,11 @@ If you want to read from a previous location in the file, use `File`'s `seek*` f
 - Show the current frame and where you are with `$ (lldb) f`
 - Continue to the next breakpoint with `$ (lldb) thread continue`
 - Delete a breakpoint with `$ (lldb) br del <breakpoint number>`
+
+## Other Tips and Tricks
+
+- How to type a unicde character into Sublime Text on Linux:
+
+    `ctrl+shift+u` > HEX code > `Enter`
+
+    EX: `ctrl+shift+u` > 2713 > `Enter` -> ✓

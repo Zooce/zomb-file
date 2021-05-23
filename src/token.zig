@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const MAX_BUFFER_SIZE: usize = 4 * 1024;
+const MAX_BUFFER_SIZE: usize = 4 * 1024; // 4k seems reasonable...
 
 pub fn makeTokenizer(reader: anytype) Tokenizer(@TypeOf(reader)) {
     return .{ .reader = reader };
@@ -65,7 +65,7 @@ pub fn Tokenizer(comptime ReaderType: type) type {
                 ')' => self.token.token_type = TokenType.RIGHT_PAREN,
                 ']' => self.token.token_type = TokenType.RIGHT_SQUARE,
                 '\n' => {
-                    self.token.token_type = TokenType.NEWLINE;
+                    self.token.token_type = TokenType.NEWLINE; // TODO: do we need this?
                     self.current_line += 1;
                 },
 
@@ -73,7 +73,7 @@ pub fn Tokenizer(comptime ReaderType: type) type {
                 '\r' => {
                     if ((self.peek() orelse 0) == '\n') {
                         _ = self.consume();
-                        self.token.token_type = TokenType.NEWLINE;
+                        self.token.token_type = TokenType.NEWLINE; // TODO: do we need this?
                         self.current_line += 1;
                     } else {
                         self.errorToken();
@@ -90,7 +90,7 @@ pub fn Tokenizer(comptime ReaderType: type) type {
                     }
                 },
                 ' ', '\t' => {
-                    self.token.token_type = TokenType.WHITESPACE;
+                    self.token.token_type = TokenType.WHITESPACE; // TODO: do we need this?
                     _ = try self.whitespace();
                 },
 
@@ -274,7 +274,7 @@ const StringReader = struct {
     str: []const u8,
     cursor: usize,
 
-    const Error = error{InvalidSeekIndex};
+    const Error = error{NoError};
     const Self = @This();
     const Reader = std.io.Reader(*Self, Error, read);
 
@@ -285,19 +285,12 @@ const StringReader = struct {
         };
     }
 
-    fn seekTo(self: *Self, index: usize) !void {
-        if (index > self.str.len) {
-            return Error.InvalidSeekIndex;
-        }
-        self.cursor = index;
-    }
-
     fn read(self: *Self, dest: []u8) Error!usize {
-        if (self.str.len <= self.cursor or dest.len == 0) {
+        if (self.cursor >= self.str.len or dest.len == 0) {
             return 0;
         }
-        const size = std.math.min(self.str.len, dest.len);
-        std.mem.copy(u8, dest, self.str[self.cursor..size]);
+        const size = std.math.min(dest.len, self.str.len);
+        std.mem.copy(u8, dest, self.str[self.cursor..self.cursor + size]);
         self.cursor += size;
         return size;
     }
@@ -326,40 +319,37 @@ fn expectToken(test_token: TestToken, token: Token, orig_str: []const u8) !void 
     try testing.expectEqualSlices(u8, test_token.str, orig_str[token.offset..token.offset + token.size]);
 }
 
-test "eof" {
-    const str = "// comment";
+fn doTokenTest(str: []const u8, test_tokens: []const TestToken) !void {
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader.reader());
-    const test_token = TestToken{ .str = "", .line = 1, .token_type = TokenType.EOF };
-
-    _ = try tokenizer.next(); // ignore the COMMENT token (there's already a test for these)
-    try expectToken(test_token, try tokenizer.next(), str);
+    for (test_tokens) |token, i| {
+        errdefer std.log.err("Token {} failed test.", .{ i });
+        try expectToken(token, try tokenizer.next(), str);
+    }
 }
 
 test "comment" {
     const str = "// this is a comment";
-    var string_reader = StringReader.init(str);
-    var tokenizer = makeTokenizer(string_reader.reader());
-    const test_token = TestToken{ .str = str, .line = 1, .token_type = TokenType.COMMENT };
-
-    try expectToken(test_token, try tokenizer.next(), str);
+    const test_tokens = [_]TestToken{
+        TestToken{ .str = str, .line = 1, .token_type = TokenType.COMMENT },
+        TestToken{ .str = "", .line = 1, .token_type = TokenType.EOF },
+    };
+    try doTokenTest(str, &test_tokens);
 }
 
 test "quoted string" {
     const str = "\"this is a \\\"quoted\\\" string\"";
-    var string_reader = StringReader.init(str);
-    var tokenizer = makeTokenizer(string_reader.reader());
-    const test_token = TestToken{ .str = str, .line = 1, .token_type = TokenType.STRING };
-
-    try expectToken(test_token, try tokenizer.next(), str);
+    const test_tokens = [_]TestToken{
+        TestToken{ .str = str, .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = "", .line = 1, .token_type = TokenType.EOF },
+    };
+    try doTokenTest(str, &test_tokens);
 }
 
 test "strings" {
     // IMPORTANT - this string is only for testing - it is not a valid zombie-file string
     const str = "I am.a,bunch\nstrings";
-    var string_reader = StringReader.init(str);
-    var tokenizer = makeTokenizer(string_reader.reader());
-    const testTokens = [_]TestToken{
+    const test_tokens = [_]TestToken{
         TestToken{ .str = "I", .line = 1, .token_type = TokenType.STRING },
         TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
         TestToken{ .str = "am", .line = 1, .token_type = TokenType.STRING },
@@ -369,9 +359,129 @@ test "strings" {
         TestToken{ .str = "bunch", .line = 1, .token_type = TokenType.STRING },
         TestToken{ .str = "\n", .line = 1, .token_type = TokenType.NEWLINE },
         TestToken{ .str = "strings", .line = 2, .token_type = TokenType.STRING },
+        TestToken{ .str = "", .line = 2, .token_type = TokenType.EOF },
     };
+    try doTokenTest(str, &test_tokens);
+}
 
-    for (testTokens) |test_token| {
-        try expectToken(test_token, try tokenizer.next(), str);
-    }
+test "macro declaration" {
+    const str =
+        \\$name = "Zooce Dark"
+        ;
+    const test_tokens = [_]TestToken{
+        TestToken{ .str = "$", .line = 1, .token_type = TokenType.DOLLAR },
+        TestToken{ .str = "name", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 1, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "\"Zooce Dark\"", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = "", .line = 1, .token_type = TokenType.EOF },
+    };
+    try doTokenTest(str, &test_tokens);
+}
+
+test "macro object declaration" {
+    const str =
+        \\$black_forground = {
+        \\    foreground = #2b2b2b
+        \\}
+        ;
+    const test_tokens = [_]TestToken{
+        TestToken{ .str = "$", .line = 1, .token_type = TokenType.DOLLAR },
+        TestToken{ .str = "black_forground", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 1, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "{", .line = 1, .token_type = TokenType.LEFT_CURLY },
+        TestToken{ .str = "\n", .line = 1, .token_type = TokenType.NEWLINE },
+        TestToken{ .str = "    ", .line = 2, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "foreground", .line = 2, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 2, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "#2b2b2b", .line = 2, .token_type = TokenType.STRING },
+        TestToken{ .str = "\n", .line = 2, .token_type = TokenType.NEWLINE },
+        TestToken{ .str = "}", .line = 3, .token_type = TokenType.RIGHT_CURLY },
+        TestToken{ .str = "", .line = 3, .token_type = TokenType.EOF },
+    };
+    try doTokenTest(str, &test_tokens);
+}
+
+test "macro array declaration" {
+    const str =
+        \\$ports = [ 8000, 8001, 8002 ]
+        ;
+    const test_tokens = [_]TestToken{
+        TestToken{ .str = "$", .line = 1, .token_type = TokenType.DOLLAR },
+        TestToken{ .str = "ports", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 1, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "[", .line = 1, .token_type = TokenType.LEFT_SQUARE },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "8000", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = ",", .line = 1, .token_type = TokenType.COMMA },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "8001", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = ",", .line = 1, .token_type = TokenType.COMMA },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "8002", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "]", .line = 1, .token_type = TokenType.RIGHT_SQUARE },
+        TestToken{ .str = "", .line = 1, .token_type = TokenType.EOF },
+    };
+    try doTokenTest(str, &test_tokens);
+}
+
+test "macro set declaration" {
+    const str =
+        \\$colors = (
+        \\    black = #2b2b2b,
+        \\    white = #f2f2f2,
+        \\    red = #ff0000
+        \\)
+        ;
+    const test_tokens = [_]TestToken{
+        TestToken{ .str = "$", .line = 1, .token_type = TokenType.DOLLAR },
+        TestToken{ .str = "colors", .line = 1, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 1, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "(", .line = 1, .token_type = TokenType.LEFT_PAREN },
+        TestToken{ .str = "\n", .line = 1, .token_type = TokenType.NEWLINE },
+        TestToken{ .str = "    ", .line = 2, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "black", .line = 2, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 2, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "#2b2b2b", .line = 2, .token_type = TokenType.STRING },
+        TestToken{ .str = ",", .line = 2, .token_type = TokenType.COMMA },
+        TestToken{ .str = "\n", .line = 2, .token_type = TokenType.NEWLINE },
+        TestToken{ .str = "    ", .line = 3, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "white", .line = 3, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 3, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 3, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 3, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "#f2f2f2", .line = 3, .token_type = TokenType.STRING },
+        TestToken{ .str = ",", .line = 3, .token_type = TokenType.COMMA },
+        TestToken{ .str = "\n", .line = 3, .token_type = TokenType.NEWLINE },
+        TestToken{ .str = "    ", .line = 4, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "red", .line = 4, .token_type = TokenType.STRING },
+        TestToken{ .str = " ", .line = 4, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "=", .line = 4, .token_type = TokenType.EQUAL },
+        TestToken{ .str = " ", .line = 4, .token_type = TokenType.WHITESPACE },
+        TestToken{ .str = "#ff0000", .line = 4, .token_type = TokenType.STRING },
+        TestToken{ .str = "\n", .line = 4, .token_type = TokenType.NEWLINE },
+        TestToken{ .str = ")", .line = 5, .token_type = TokenType.RIGHT_PAREN },
+        TestToken{ .str = "", .line = 5, .token_type = TokenType.EOF },
+    };
+}
+
+test "macro function declaration" {
+    const str =
+        \\$scope_def(scope, settings) = {
+        \\    scope = $scope,
+        \\    settings = $settings
+        \\}
+        ;
 }
