@@ -4,18 +4,29 @@ const MAX_BUFFER_SIZE: usize = 4 * 1024; // 4k seems reasonable...
 
 /// Token types
 pub const TokenType = enum {
-    // single character tokens
-    Comma, Dollar, Dot, Equals,
-    OpenCurly, OpenParen, OpenSquare,
-    Newline, Number,
-    CloseCurly, CloseParen, CloseSquare,
-    Quote, WhiteSpace,
+    // delimiters
+    Comma,
+    Dollar,
+    Dot,
+    Equals,
+    OpenCurly,
+    OpenParen,
+    OpenSquare,
+    Newline,
+    CloseCurly,
+    CloseParen,
+    CloseSquare,
+    Quote,
+    WhiteSpace,
 
     // literals
-    Comment, String,
+    Comment,
+    String,
+    Number,
 
     // others
-    Error, Eof,
+    Error,
+    Eof,
 };
 
 /// Token - We store only the starting offset and the size instead of slices because we don't want
@@ -45,7 +56,6 @@ pub fn makeTokenizer(file: anytype) Tokenizer(@TypeOf(file)) {
 pub fn Tokenizer(comptime FileType: type) type {
     return struct {
         // ---- Fields
-
         /// The file to read for tokenizing
         file: FileType,
 
@@ -167,7 +177,7 @@ pub fn Tokenizer(comptime FileType: type) type {
 
         /// Parses a quoted String token.
         fn quoted_string(self: *Self) !void {
-            while(try self.skipToBytes("\\\"")) {
+            while (try self.skipToBytes("\\\"")) {
                 switch (self.peek().?) {
                     '\\' => {
                         // consume the escape byte and the byte it's escaping
@@ -335,7 +345,7 @@ const StringReader = struct {
             return 0;
         }
         const size = std.math.min(dest.len, self.str.len);
-        std.mem.copy(u8, dest, self.str[self.cursor..self.cursor + size]);
+        std.mem.copy(u8, dest, self.str[self.cursor .. self.cursor + size]);
         self.cursor += size;
         return size;
     }
@@ -361,14 +371,14 @@ fn expectToken(test_token: TestToken, token: Token, orig_str: []const u8) !void 
         // also make sure our test token is correct just to make sure
         try testing.expectEqualSlices(u8, "", test_token.str);
     }
-    try testing.expectEqualSlices(u8, test_token.str, orig_str[token.offset..token.offset + token.size]);
+    try testing.expectEqualSlices(u8, test_token.str, orig_str[token.offset .. token.offset + token.size]);
 }
 
 fn doTokenTest(str: []const u8, test_tokens: []const TestToken) !void {
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader);
     for (test_tokens) |token, i| {
-        errdefer std.log.err("Token {} failed test.", .{ i });
+        errdefer std.log.err("Token {} failed test.", .{i});
         try expectToken(token, try tokenizer.next(), str);
     }
 }
@@ -440,7 +450,7 @@ test "zeros" {
 test "simple macro declaration" {
     const str =
         \\$name = "Zooce Dark"
-        ;
+    ;
     const test_tokens = [_]TestToken{
         TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
         TestToken{ .str = "name", .line = 1, .token_type = TokenType.String },
@@ -458,7 +468,7 @@ test "macro object declaration" {
         \\$black_forground = {
         \\    foreground = #2b2b2b
         \\}
-        ;
+    ;
     const test_tokens = [_]TestToken{
         TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
         TestToken{ .str = "black_forground", .line = 1, .token_type = TokenType.String },
@@ -483,7 +493,7 @@ test "macro object declaration" {
 test "macro array declaration" {
     const str =
         \\$ports = [ 8000, 8001, 8002 ]
-        ;
+    ;
     const test_tokens = [_]TestToken{
         TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
         TestToken{ .str = "ports", .line = 1, .token_type = TokenType.String },
@@ -512,7 +522,7 @@ test "macro with parameters declaration" {
         \\    scope = $scope,
         \\\t settings = $settings
         \\}
-        ;
+    ;
     const test_tokens = [_]TestToken{
         TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
         TestToken{ .str = "scope_def", .line = 1, .token_type = TokenType.String },
