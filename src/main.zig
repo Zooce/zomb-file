@@ -26,18 +26,7 @@ pub fn main() anyerror!void {
     };
     defer file.close(); // TODO: can we do this earlier?
 
-    var buffer: [MAX_READ_LEN]u8 = undefined;
-    var line = (try file.reader().readUntilDelimiterOrEof(&buffer, '\n')) orelse null;
-    if (line) |l| {
-        std.log.info("Line: {s}", .{l});
-    }
-    try file.seekTo(0);
-    line = (try file.reader().readUntilDelimiterOrEof(&buffer, '\n')) orelse null;
-    if (line) |l| {
-        std.log.info("Line: {s}", .{l});
-    }
-
-    var tokenizer = makeTokenizer(file.reader());
+    var tokenizer = makeTokenizer(file);
     const token = try tokenizer.next();
 
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};

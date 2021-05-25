@@ -1,39 +1,51 @@
 // Syntax Grammar
 
-file            -> declaration* EOF
-declaration     -> var-decl | fun-decl | var-set-decl | pair | comment
-comment         -> SLASH SLASH <any non-control unicode character>* NEWLINE
-var-decl        -> DOLLAR string assignment
-fun-decl        -> DOLLAR string LEFT_PAREN ( string ( COMMA string )* )* RIGHT_PAREN assignment
-var-set-decl    -> DOLLAR string EQUAL LEFT_PAREN ( string ( COMMA string )* )+ COMMA? RIGHT_PAREN NEWLINE
-pair            -> string assignment
-assignment      -> EQUAL value NEWLINE
-value           -> string | object | array | var-use
-object          -> LEFT_CURLY pair ( COMMA pair )* COMMA? RIGHT_CURLY
-array           -> LEFT_SQUARE value ( COMMA value )* COMMA? RIGHT_SQUARE
-string          -> STRING | quoted_string
-quoted_string   -> QUOTE <any unicode character, except QUOTE must be escaped with '\'>* QUOTE
-var-use         -> DOLLAR string ( DOT string )*
-fun-use         -> DOLLAR string LEFT_PAREN ( param ( COMMA param )* )* RIGHT_PAREN
-param           -> string | var-use | fun-use
-whitespace      -> SPACE | NEWLINE | TAB
+zombie-file         -> decl* EOF
+
+decl                -> macro-decl | kv-pair | .Comment
+
+macro-decl          -> macro-key macro-decl-params? assignment
+kv-pair             -> string assignment
+
+macro-key           -> .Dollar string
+macro-decl-params   -> .OpenParen string ( .Comma string )* .Comma? .CloseParen
+
+assignment          -> .Equals value .Newline
+value               -> string | object | array | number | macro-use
+object              -> .OpenCurly kv-pair ( .Comma kv-pair )* .Comma? .CloseCurly
+array               -> .OpenSquare value ( .Comma value )* .Comma? .CloseSquare
+
+string              -> .String | quoted_string
+quoted_string       -> .Quote <any unicode codepoint, except '"' must be escaped with '\'>* .Quote
+
+macro-use           -> macro-id macro-use-params? key-accessor*
+macro-use-params    -> .OpenParen param ( .Comma param )* .CloseParen
+param               -> string | macro-use
+key-accessor        -> .Dot ( string | number )
+number              -> 0 | 1-9 ( 0-9 )*
+
+whitespace          -> .Space | .Newline | .Tab
 
 // Lexical Grammar
 
-COMMA           -> ,
-DOLLAR          -> $
+.Comma          -> , (special)
+.Comment        -> .Slash .Slash <any unicode codepoint>* .NewLine  (this is a special case)
+.Dot            -> . (special)
+.Dollar         -> $
+.Equals         -> =
+.OpenCurly      -> {
+.OpenParen      -> (
+.OpenSquare     -> [
+.Newline        -> \n | \r\n (special)
+.CloseCurly     -> }
+.CloseParen     -> )
+.CloseSquare    -> ]
+.Space          -> 0x20 (special)
+.Slash          -> /
+.String         -> <any unicode character, except "special" bytes must be escaped with '\'>* (this is likely incorrect - if a string is to contain any "special" bytes, it must be quoted, not escaped)
+.Tab            -> \t (special)
+.Quote          -> "
 EOF             -> <end of the file>
-EQUAL           -> =
-LEFT_CURLY      -> {
-LEFT_PAREN      -> (
-LEFT_SQUARE     -> [
-NEWLINE         -> \n | \r\n
-RIGHT_CURLY     -> }
-RIGHT_PAREN     -> )
-RIGHT_SQUARE    -> ]
-SLASH           -> /
-STRING          -> <any unicode character, except ' ' and ',' must be escaped with '\'>*
-QUOTE           -> "
 
 // PATTERNS
 
@@ -88,3 +100,140 @@ $cool_person(p) = {
 ']'  = 0x5D = ✓ -> Right Square
 '{'  = 0x7B = ✓ -> Left Curly
 '}'  = 0x7D = ✓ -> Right Curly
+
+// Random Notes
+
+To separate key-value pairs, we require a comma, newline, or ending the enclosing set, object, or array with the corresponding right bracket.
+
+// Parsing
+
+STRING = STRING
+^----^   ^----^
+     |        |...String Value
+     |............Identifier
+
+STRING = { STRING = value, DOLLAR STRING = value }
+^----^   ^ ^----^   ^---^^ ^-----------^   ^---^ ^
+     |   |      |       ||             |       | |...Object End
+     |   |      |       ||             |       |...Value (Can be pretty much anything)
+     |   |      |       ||             |...Macro Identifier
+     |   |      |       ||...Comma (separates key-value pairs)
+     |   |      |       |...Value (Can be pretty much anything)
+     |   |      |...Identifier
+     |   |...Object Begin
+     |...Identifier
+
+// -- Macro
+
+DOLLAR STRING = STRING
+^-----------^   ^----^
+            |        |...String Value
+            |............Macro Identifier
+
+// -- Macro Object
+
+DOLLAR STRING = { STRING = value }
+^-----------^   ^ ^----^   ^---^ ^
+            |   |      |       | |...Object End
+            |   |      |       |...Value (Can be pretty much anything)
+            |   |      |...Identifier
+            |   |...Object Begin
+            |...Macro Identifier
+
+// How are we going to parse the tokens?
+
+Stack                  | Token  | Match                    | Action
+-----------------------|--------|--------------------------|-------
+(empty)                | '$'    | Macro (partial)          | Push
+'$'                    | 'name' | Macro (full)             | Push
+'$' 'name'             | '('    | Macro Function (partial) | Push
+'$' 'name' '('         | 'n'    | Macro Function (partial) | Push
+'$' 'name' '(' 'n'     | ')'    | Macro Function (full)    | Push
+'$' 'name' '(' 'n' ')' | '='    | None                     | Flush
+
+
+State {
+    MacroId,        // stack = [ DOLLAR, STRING ]
+    MacroFuncId,    // stack = [ DOLLAR, STRING, OPEN_PAREN ]
+}
+
+Parser {
+    parse(tokenizer) {
+        while (tokenizer.next()) |token| {
+            if (stack.evaluate(token)) {
+                stack.push(token)
+            } else {
+                stack.
+            }
+        }
+    }
+}
+
+self.stack = ArrayList.init(&allocator);
+
+token = tokenizer.next();
+switch (self.state) {
+    .Decl => {
+        switch (token) {
+            .Dollar => {
+                self.stack.push(token);
+                token = tokenizer.next();
+                if (token != TokenString) {
+                    return InvalidMacroIdentifier;
+                }
+                self.stack.push(token);
+                self.state = States.
+            },
+            .String => self.state = States.Pair,
+            .Comment => {},
+            else => return Error.InvalidDeclaration,
+        }
+        self.stack.push(token);
+    },
+    .MacroId => {
+        if (token != Token.String) {
+            return InvalidMacroIdentifier,
+        }
+        self.stack.push(token);
+        self.state = States.MacroDecl;
+    },
+    .MacroDecl => {
+        switch (token) {
+            .Equals => self.state = States.MacroDef,
+            .OpenParen => self.state = States.MacroFuncParam,
+
+        }
+    }
+}
+
+for (stack) |token| {
+    switch (token) {
+        .Dollar =>
+    }
+}
+
+////////
+
+// no params
+$macro1 = value
+$macro2 = { key = value }
+$macro3 = [ value0, value1 ]
+
+key = $macro1  ->  key = value
+key = $macro2  ->  key = { key = value }
+key = $macro3  ->  key = [ value, value ]
+
+// params
+$macro4(a) = $a
+$macro5(a) = { key = $a }
+$macro6(a) = [ value0, $a ]
+
+key = $macro4(a)  ->  key = a
+key = $macro5(a)  ->  key = { key = a }
+key = $macro6(a)  ->  key = [ value, a ]
+
+// macro member acccess
+key = $macro2.key     ->  key = value
+key = $macro3.1       ->  key = value1
+key = $macro5(a).key  ->  key = a
+key = $macro6(a).0    ->  key = value0
