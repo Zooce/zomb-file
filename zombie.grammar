@@ -1,66 +1,141 @@
-// Syntax Grammar
+///--------------------------------------------- Legend
+// +X     =>  1 or more of X
+// *X     =>  0 or more of X
+// ?X     =>  0 or 1 of X
+// ( .. ) =>  group - treated as a single entity
+// X | Y  =>  X or Y
+// X - Y  =>  X excluding Y
+// 'X'    =>  'X' single character literal
+// .X     =>  .X multi-character literal
 
-zombie-file         -> decl* EOF
+/// Syntax Grammar
+// ** all white space between tokens is ignored unless specified **
 
-decl                -> macro-decl | kv-pair | .Comment
+zombie-file
+    +decl .Eof
 
-macro-decl          -> macro-key macro-decl-params? assignment
-kv-pair             -> string assignment
+decl
+    kv-pair | macro-decl | .Comment
 
-macro-key           -> .Dollar string
-macro-decl-params   -> .OpenParen string ( .Comma string )* .Comma? .CloseParen
+kv-pair
+    string assignment
 
-assignment          -> .Equals value .Newline
-value               -> string | object | array | number | macro-use
-object              -> .OpenCurly kv-pair ( .Comma kv-pair )* .Comma? .CloseCurly
-array               -> .OpenSquare value ( .Comma value )* .Comma? .CloseSquare
+assignment
+    '=' value separator
 
-string              -> .String | quoted_string
-quoted_string       -> .Quote <any unicode codepoint, except '"' must be escaped with '\'>* .Quote
+value
+    string | object | array | .Number | macro-use
 
-macro-use           -> macro-id macro-use-params? key-accessor*
-macro-use-params    -> .OpenParen param ( .Comma param )* .CloseParen
-param               -> string | macro-use
-key-accessor        -> .Dot ( string | number )
-number              -> 0 | 1-9 ( 0-9 )*
+object
+    '{' *kv-pair '}'
 
-whitespace          -> .Space | .Newline | .Tab
+array
+    '[' ?( value *( separator value ) ?separator ) ']'
 
-// Lexical Grammar
+macro-decl
+    macro-key ?macro-decl-params assignment
 
-.Comma          -> , (special)
-.Comment        -> .Slash .Slash <any unicode codepoint>* .NewLine  (this is a special case)
-.Dot            -> . (special)
-.Dollar         -> $
-.Equals         -> =
-.OpenCurly      -> {
-.OpenParen      -> (
-.OpenSquare     -> [
-.Newline        -> \n | \r\n (special)
-.CloseCurly     -> }
-.CloseParen     -> )
-.CloseSquare    -> ]
-.Space          -> 0x20 (special)
-.Slash          -> /
-.String         -> <any unicode character, except "special" bytes must be escaped with '\'>* (this is likely incorrect - if a string is to contain any "special" bytes, it must be quoted, not escaped)
-.Tab            -> \t (special)
-.Quote          -> "
-EOF             -> <end of the file>
+macro-key
+    '$' string
+
+macro-decl-params
+    '(' string *( separator string ) ?separator ')'
+
+macro-use
+    macro-key ?macro-use-params *key-accessor
+
+macro-use-params
+    '(' param *( separator param ) ?separator ')'
+
+param
+    string | macro-use
+
+key-accessor
+    '.' ( string | .Number )
+
+separator
+    ',' | newline
+
+string
+    bare_string | quoted_string
+
+bare_string
+    +( character - delimiter )
+
+quoted_string
+    '"' escaped_string '"'
+
+escaped_string
+    *( *( character - escape ) *( '\' escape ) )
+
+character
+    0x20...0x10FFFF
+
+escape
+    '"' | '\' | 'b' | 'f' | 'n' | 'r' | 't' | 'u' hex hex hex hex
+
+hex
+    0-9 | 'A'...'F' | 'a'...'f'
+
+delimiter
+    '\t'  // 0x09 .Tab
+    '\n'  // 0x0A .LineFeed
+    '\r'  // 0x0D .CarriageReturn
+    ' '   // 0x20 .Space
+    '"'   // 0x22 .Quote
+    '$'   // 0x24 .Dollar
+    '('   // 0x28 .OpenParen
+    ')'   // 0x29 .CloseParen
+    ','   // 0x2C .Comma
+    '.'   // 0x2E .Dot
+    '='   // 0x3D .Equals
+    '['   // 0x5B .OpenSquare
+    '\'   // 0x5C .ReverseSolidus
+    ']'   // 0x5D .CloseSquare
+    '{'   // 0x7B .OpenCurly
+    '}'   // 0x7D .CloseCurly
+
+newline
+    '\n' | '\r\n'
+
+
+/// Lexical Grammar (Tokens)
+
+// .String cannot contain any of these - use a quoted .String instead
+.Comma              -> ,
+.Dot                -> .
+.Dollar             -> $
+.Equals             -> =
+.Quote              -> "  (must be escaped in a quoted string)
+.OpenCurly          -> {
+.OpenParen          -> (
+.OpenSquare         -> [
+.CloseCurly         -> }
+.CloseParen         -> )
+.CloseSquare        -> ]
+.WhiteSpace         -> 0x20 | \t
+.Newline            -> \n | \r\n
+
+.Comment            -> // <any unicode codepoint>* .NewLine
+.String             -> <any unicode character, except "special" bytes must be escaped with '\'>* (this is likely incorrect - if a string is to contain any "special" bytes, it must be quoted, not escaped)
+.Number             -> 0 | 1-9 ( 0-9 )*
+
+EOF                 -> <end of the file>
 
 // PATTERNS
 
-$KEY = ( KEY, KEY, KEY )        -> A "Macro Set".
-$KEY(PARAM, PARAM) = VALUE      -> A "Macro Function".
+$KEY(PARAM PARAM) = VALUE      -> A "Macro" with parameters.
 $KEY = { KEY = VALUE }          -> A "Macro Object".
-$KEY = [ VALUE, VALUE, $KEY ]   -> A "Macro Array".
+$KEY = [ VALUE VALUE $KEY ]   -> A "Macro Array".
 
 KEY = VALUE                     -> A key-value pair
 "KEY" = VALUE                   -> A key-value pair (with a quoted KEY)
 KEY = { KEY = VALUE }           -> A key-object pair.
-KEY = [ VALUE, VALUE, VALUE ]   -> A key-array pair.
-KEY = $KEY                      -> Using a "Macro" or "Macro Object" or "Macro Array" as a value.
-KEY = $KEY.KEY                  -> Using a value from a "Macro Set" as a value.
-KEY = $KEY(VALUE, $KEY)         -> Using a "Macro Function" with a regular value and a "Macro" or "Macro Object" or "Macro Array" or "Macro Function" as a value
+KEY = [ VALUE VALUE VALUE ]   -> A key-array pair.
+KEY = $KEY                      -> Using an entire "Macro" or "Macro Object" or "Macro Array" as a value.
+KEY = $KEY.KEY                  -> Using a field from a "Macro Object" as a value.
+KEY = $KEY.0                    -> Using an index from a "Macro Array" as a value.
+KEY = $KEY(VALUE $KEY)         -> Using a "Macro Function" with a regular value and a "Macro" or "Macro Object" or "Macro Array" or "Macro Function" as a value
 
 // Simple recursion -- forbidden
 
@@ -237,3 +312,42 @@ key = $macro2.key     ->  key = value
 key = $macro3.1       ->  key = value1
 key = $macro5(a).key  ->  key = a
 key = $macro6(a).0    ->  key = value0
+
+
+////// Testing out separator syntax
+
+/// No commas - what kinds of weird things can I do
+
+// basics
+
+// this is okay - but depending on the values, might be a little weird
+key = [ v1 v2 v3 ]
+
+key = [ v1, v2
+    v3]
+
+// this sucks, but that's okay because you can't do this anyways [1]
+//  [1]: assignment is defined as `.Equals ws* value .Newline` << a newline is required after an assignment
+key = { a = 1 b = 2 c = 3 }
+
+// the macro declaration here is okay - something about no commas between parameters seems weird...
+$macro(p1 p2 p3) = {
+    a = $p1
+    b = $p2
+    c = $p3
+}
+
+// again this is okay, but something is weird here - maybe commas would be a better idea for parameters
+key = $macro(hello there friend)
+
+// ....yea this is better
+key = $macro(hello, there, friend)
+
+// we should probably allow this in case we have some longer usage of macros as a parameter..
+key = $macro(
+    hello,
+    there,
+    $some_longer_macro
+        ( need, more, structure,
+          $again_wtf_long_macro_name(for, the, params),
+)

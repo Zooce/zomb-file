@@ -1,131 +1,130 @@
 # Zombie
 
-Welcome! This is the `Zombie` data-file format. It's like JSON but with macros!
+Welcome! This is the `Zombie` data-file format. It's like JSON but with macros (and some other relaxed syntax)!
 
 ## Basics
 
-Here's a basic example:
+Here's a basic example (without macros):
 
 ```
-title = Zombie Example
+"$schema" = vscode://schemas/color-theme
+name = "Zooce Dark"
+type = Dark
+colors = {
+    "editor.foreground" = #f2f2f2,
+    "editor.background" = #2b2b2b,
+}
+tokenColors = [
+    {
+        scope = "punctuation.definition.arguments",
+        settings = {
+            foreground = #f2f2f2,
+        },
+    },
+    {
+        scope = comment,
+        settings = {
+            foreground = #8a8a8a,
+            fontStyle = italic,
+        },
+    },
+]
+ports = [ 8000, 9000, 8001 ]
+```
 
-owner = {
-    name = Zooce,
-    dob = 1988-05-20T00:32:00-08:00,
+A couple things before we see Macros in action.
+
+1. Strings only need to be quoted (with double quotes) if they include any of the file delimiters (e.g. ` `, `.`, `{`, etc.).
+2. "Top-level" key-value pair declarations are separated by newlines, not commas.
+3. Key-value pairs within an object or values within an array need to be separated by commas. You can also use a trailing comma -- this is nice because next time you want to add a key-value pair or a new value to an array, you don't need to add a comma after the value above it.
+
+## Macros
+
+Macros are the special sauce of Zombie files. They allow you to write reusable values, objects, and arrays. They have _mostly_ the same declaration syntax as any other value, object, or array, except their name (or key) must start with a dollar sign (`$`) and can optionally have a set of parameters.
+
+> _If you're one of those super smart people and already you're thinking about how macros may cause issues (like with recursion), then I'll just tell you now that recursion is forbidden. There's a section on this below -- keep reading._
+
+**Value Macro**
+
+A "Value Macro" is a macro whose value is just string.
+
+```
+$light = #f2f2f2
+$dark  = #2b2b2b
+
+tokenColors = [
+    {
+        scope = "comment.line",
+        settings = {
+            foreground = $dark,
+        },
+    },
+    {
+        scope = "comment.line.message",
+        settings = {
+            foreground = $light,
+        },
+    },
+]
+```
+
+**Object Macro**
+
+An "Object Macro" is a macro whose value is an object. You use the entire object as a value or you can access individual keys and use them as values.
+
+```
+$settings_obj = {
+    foreground = #f2f2f2,
 }
 
-database = {
-    enabled = true,
-    ports = [ 8000, 8001, 8002 ],
-    data = [ [ delta, phi ], [ 3.14 ] ],
-    temp_targets = { cpu = 79.5, case = 72.0 },
-}
+tokenColors = [
+    {
+        scope = "comment.line",
+        settings = $settings_obj,  // [1]
+    },
+    {
+        scope = "comment.line.message",
+        settings = {
+            foreground = $settings.foreground_obj,  // [2]
+        },
+    },
+]
+```
+
+**Array Macro**
+
+An "Array Macro" is a macro whose value is an array. You can use the entire array as a value or you can access individual indexes and use them as values.
+
+```
+$ports = [ 8000, 8001, 9000 ]
 
 servers = {
-    alpha.go = {
-        ip = 10.0.0.1,
-        role = frontend,
+    stage = {
+        ports = $ports,
     },
-    beta = {
-        ip = 10.0.0.2,
-        role = backend,
-    },
+    prod = {
+        ports = [ $ports.0, $ports.2 ]
+    }
 }
 ```
 
-## Notes
+## References to other data-file formats
 
-1. Create a `Scanner` to turn the source file into a list of `Token`s
-2. Create a `Parser` to turn the list of `Token`s into an AST
-
-## What is a `Token`?
-
-A `Token` is shaped like this:
-
-```
-const Token = struct {
-    /// the type of the token
-    token_type: TokenType,
-
-    /// the actual token string
-    lexeme: []const u8,
-
-    /// the line on which this token was scanned
-    line: usize,
-};
-
-/// These are the types of tokens our `Scanner` will be looking for
-const TokenType = enum {
-    // single character tokens
-    DOLLAR, DOT, EQUAL,
-    LEFT_CURLY, RIGHT_CURLY,
-    LEFT_PAREN, RIGHT_PAREN,
-    LEFT_SQUARE, RIGHT_SQUARE,
-    SLASH, QUOTE,
-
-    // literals
-    IDENTIFIER, VARIABLE, PARAMETER,
-
-    EOF,
-}
-
-What do the nodes of the AST look like?
-
-> _TODO_
-
-
-# Some ideas from (Eno)[https://eno-lang.org/guide/]
+**Interesting things about [Eno](https://eno-lang.org/guide/)**
 
 - the first character of a line is special
-- arrays are interesting
+- arrays are interesting:
 
-    instead of [ a, b, c ] they have:
+    instead of `[ a, b, c ]` they have:
+
+    ```
     - a
     - b
     - c
+    ```
 
-# [NestedText](https://github.com/KenKundert/nestedtext) is quite cool
+**[NestedText](https://github.com/KenKundert/nestedtext) has a nice simple format**
 
-buf = [MAX_LENGTH]
-loop {
-    reader.read(buf)
-    token = scanner.nextToken()
-    stack.push(token)
-    if (stack.match()) {
-        expr = stack.consume()
-    }
-}
+---
 
-
-# Some notes on `File` and its `Reader`
-
-Calling `file.reader()` multiple times, will give back the same reader -- meaning it will still be at the same offset as it was before.
-
-If you want to read from a previous location in the file, use `File`'s `seek*` functions, then use the `Reader` to read.
-```
-
-## Debugging with `lldb`
-
-- Install `lldb` with `$ sudo apt install lldb`.
-- Start `lldb` with `$ lldb`
-- Tell it where the executable is with `$ (lldb) file <path to the executable`
-    - The main executable is in `zig-out/bin/zombie-file`
-    - The test executable is in `src/zig-cache/o/<hash>/test`
-- Place a breakpoint with `$ (lldb) breakpoint set -f <filename (not the path)> -l <line number>`
-    - Or `b <filename (not the path)>:<line number>`
-- List all the breakpoints with `$ (lldb) br l`
-- Run the program with `$ (lldb) r <args>`
-- Examine a variable with `$ (lldb) p <variable>`
-- Examine all local arguments and variables in the current frame with `$ (lldb) fr v`
-- Examine `*self` struct fields with `$ (lldb) v *self`
-- Show the current frame and where you are with `$ (lldb) f`
-- Continue to the next breakpoint with `$ (lldb) thread continue`
-- Delete a breakpoint with `$ (lldb) br del <breakpoint number>`
-
-## Other Tips and Tricks
-
-- How to type a unicde character into Sublime Text on Linux:
-
-    `ctrl+shift+u` > HEX code > `Enter`
-
-    EX: `ctrl+shift+u` > 2713 > `Enter` -> ✓
+_This work is covered under the MIT (Expat) License. See LICENSE.md._

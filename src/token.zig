@@ -1,39 +1,67 @@
 const std = @import("std");
 
-const MAX_BUFFER_SIZE: usize = 4 * 1024; // 4k seems reasonable...
+const max_buffer_size: usize = 4 * 1024; // 4k seems reasonable...
 
-/// Token types
-pub const TokenType = enum {
-    // delimiters
-    Comma,
-    Dollar,
-    Dot,
-    Equals,
-    OpenCurly,
-    OpenParen,
-    OpenSquare,
+/// Special token types (usually a combination of DelimiterTokens)
+const SpecialToken = enum(u8) {
+    WhiteSpace = 0,
     Newline,
-    CloseCurly,
-    CloseParen,
-    CloseSquare,
-    Quote,
-    WhiteSpace,
-
-    // literals
     Comment,
     String,
     Number,
-
-    // others
-    Error,
     Eof,
+
+    Error,
 };
+
+/// Delimiter token types
+const DelimiterToken = enum(u8) {
+    Tab = '\t', // 0x09  9
+    LineFeed = '\n', // 0x0A  10
+    CarriageReturn = '\r', // 0x0D  13
+    Space = ' ', // 0x20  32
+    Quote = '"', // 0x22  24
+    Dollar = '$', // 0x24  36
+    OpenParen = '(', // 0x28  40
+    CloseParen = ')', // 0x29  41
+    Comma = ',', // 0x2C  44
+    Dot = '.', // 0x2E  46
+    Equals = '=', // 0x3D  61
+    OpenSquare = '[', // 0x5B  91
+    ReverseSolidus = '\\', // 0x5C  92
+    CloseSquare = ']', // 0x5D  93
+    OpenCurly = '{', // 0x7B  123
+    CloseCurly = '}', // 0x7D  125
+
+    None = 0,
+};
+
+const delimiters = blk: {
+    var delims: []const u8 = &[_]u8{};
+    inline for (std.meta.fields(DelimiterToken)) |d| {
+        if (d.value > 0) {
+            delims = delims ++ &[_]u8{d.value};
+        }
+    }
+    break :blk delims;
+};
+
+const TokenType = @Type(out: {
+    const fields = @typeInfo(SpecialToken).Enum.fields ++ @typeInfo(DelimiterToken).Enum.fields;
+    break :out .{
+        .Enum = .{
+            .layout = .Auto,
+            .tag_type = u8, // std.math.IntFittingRange(0, fields.len - 1),
+            .decls = &[_]std.builtin.TypeInfo.Declaration{},
+            .fields = fields,
+            .is_exhaustive = true,
+        },
+    };
+});
 
 /// Token - We store only the starting offset and the size instead of slices because we don't want
 /// to deal with carrying around pointers and all of the stuff that goes with that.
 pub const Token = struct {
-    const Self = @This();
-
     /// The offset into the file where this token begins.
     offset: usize = 0,
 
@@ -48,6 +76,8 @@ pub const Token = struct {
     token_type: TokenType = TokenType.Error,
 };
 
+pub const TokenizerError = error{InvalidControlCharacter};
+
 pub fn makeTokenizer(file: anytype) Tokenizer(@TypeOf(file)) {
     return .{ .file = file };
 }
@@ -60,7 +90,7 @@ pub fn Tokenizer(comptime FileType: type) type {
         file: FileType,
 
         /// The buffer which the file's reader will read to
-        buffer: [MAX_BUFFER_SIZE]u8 = undefined,
+        buffer: [max_buffer_size]u8 = undefined,
 
         /// The current number of bytes read into the buffer
         buffer_size: usize = 0,
@@ -97,26 +127,17 @@ pub fn Tokenizer(comptime FileType: type) type {
             }
 
             const byte = self.consume().?;
-            switch (byte) {
-                // single-character tokens
-                ',' => self.token.token_type = TokenType.Comma,
-                '$' => self.token.token_type = TokenType.Dollar,
-                '.' => self.token.token_type = TokenType.Dot,
-                '=' => self.token.token_type = TokenType.Equals,
-                '{' => self.token.token_type = TokenType.OpenCurly,
-                '(' => self.token.token_type = TokenType.OpenParen,
-                '[' => self.token.token_type = TokenType.OpenSquare,
-                '}' => self.token.token_type = TokenType.CloseCurly,
-                ')' => self.token.token_type = TokenType.CloseParen,
-                ']' => self.token.token_type = TokenType.CloseSquare,
-                '\n' => {
+
+            const delim_byte = std.meta.intToEnum(DelimiterToken, byte) catch DelimiterToken.None;
+            switch (delim_byte) {
+                // delimiters with special handling
+                DelimiterToken.Tab, DelimiterToken.Space => try self.whitespace(),
+                DelimiterToken.LineFeed => {
                     self.token.token_type = TokenType.Newline; // TODO: do we need this?
                     self.current_line += 1;
                 },
-
-                // multi-character tokens
-                '\r' => {
-                    if ((self.peek() orelse 0) == '\n') {
+                DelimiterToken.CarriageReturn => {
+                    if ((self.peek() orelse 0) == @enumToInt(DelimiterToken.LineFeed)) {
                         _ = self.consume();
                         self.token.token_type = TokenType.Newline; // TODO: do we need this?
                         self.current_line += 1;
@@ -124,32 +145,41 @@ pub fn Tokenizer(comptime FileType: type) type {
                         self.errorToken();
                     }
                 },
-                '"' => {
-                    _ = try self.quoted_string();
-                },
-                '/' => {
-                    if ((self.peek() orelse 0) == '/') {
-                        try self.comment();
-                    } else {
-                        try self.string();
+                DelimiterToken.Quote => try self.quotedString(),
+                DelimiterToken.ReverseSolidus => self.errorToken(),
+
+                // the byte is not at delimiter, so handle it accordingly
+                DelimiterToken.None => {
+                    switch (byte) {
+                        // invalid control characters (white space is already a handled delimiter)
+                        0x00...0x1F => self.errorToken(),
+
+                        // check if we're starting a comment - otherwise it's a bare string
+                        '/' => {
+                            if ((self.peek() orelse 0) == '/') {
+                                try self.comment();
+                            } else {
+                                try self.bareString();
+                            }
+                        },
+
+                        // numbers
+                        '0' => {
+                            try self.endOfNumberElseBareString();
+                        },
+                        '1'...'9' => {
+                            try self.skipWhileInRange('0', '9');
+                            try self.endOfNumberElseBareString();
+                        },
+
+                        else => try self.bareString(),
                     }
                 },
-                ' ', '\t' => {
-                    self.token.token_type = TokenType.WhiteSpace; // TODO: do we need this?
-                    _ = try self.whitespace();
-                },
 
-                // numbers
-                '0' => {
-                    try self.numberElseString();
-                },
-                '1'...'9' => {
-                    try self.skipWhileInRange('0', '9');
-                    try self.numberElseString();
-                },
-
-                else => try self.string(),
+                // the byte is a single-character delimiter, so translate it to TokenType
+                else => self.token.token_type = std.meta.intToEnum(TokenType, byte) catch unreachable,
             }
+
             self.token_start += self.token.size;
             return self.token;
         }
@@ -163,10 +193,9 @@ pub fn Tokenizer(comptime FileType: type) type {
         }
 
         /// Parses a String token.
-        fn string(self: *Self) !void {
+        fn bareString(self: *Self) !void {
             self.token.token_type = TokenType.String;
-            _ = try self.skipToBytes(" \t.,\r\n"); // EOF is fine
-            // TODO: allow the above set of "skip-to" bytes to be escaped with '\' ?
+            _ = try self.skipToBytes(delimiters); // EOF is fine
         }
 
         /// Parses a WhiteSpace token.
@@ -176,13 +205,16 @@ pub fn Tokenizer(comptime FileType: type) type {
         }
 
         /// Parses a quoted String token.
-        fn quoted_string(self: *Self) !void {
+        fn quotedString(self: *Self) !void {
             while (try self.skipToBytes("\\\"")) {
                 switch (self.peek().?) {
                     '\\' => {
                         // consume the escape byte and the byte it's escaping
                         _ = self.consume();
                         _ = self.consume();
+                        // TODO: There are really only a handful of valid bytes to escape. Consider replacing the second
+                        // consume() with something similar to the following:
+                        // if (try self.skipToBytes("bfnrtu\\\"")) _ = self.consume() else return error.InvalidEscapedCharacter;
                     },
                     '"' => {
                         // consume the ending double-quote and return
@@ -198,12 +230,17 @@ pub fn Tokenizer(comptime FileType: type) type {
         }
 
         /// Parses a number if the buffer cursor points to a delimiter that would end a number,
-        /// otherwise parses a string.
-        fn numberElseString(self: *Self) !void {
-            switch ((self.peek() orelse 0)) {
-                ' ', '\t', '\r', '\n', ',', '.' => self.token.token_type = TokenType.Number,
-                else => try self.string(),
+        /// otherwise parses a bare string.
+        fn endOfNumberElseBareString(self: *Self) !void {
+            const byte = self.peek() orelse 0;
+            // check for delimiters
+            for (delimiters) |d| {
+                if (byte == d) {
+                    self.token.token_type = TokenType.Number;
+                    return;
+                }
             }
+            try self.bareString();
         }
 
         // ---- Common Token Generators
@@ -284,7 +321,7 @@ pub fn Tokenizer(comptime FileType: type) type {
         fn skipWhileInRange(self: *Self, lo: u8, hi: u8) !void {
             while (self.buffer_size > 0) {
                 peekloop: while (self.peek()) |byte| {
-                    if (byte >= lo and byte < hi) {
+                    if (byte >= lo and byte <= hi) {
                         _ = self.consume();
                         continue :peekloop;
                     }
@@ -355,94 +392,156 @@ const StringReader = struct {
     }
 };
 
-const TestToken = struct {
+/// A structure describing the expected token.
+const ExpectedToken = struct {
     str: []const u8,
     line: usize,
     token_type: TokenType,
+    // TODO: figure out a way to allow this to fail (like a pass/fail flag)
 };
 
-fn expectToken(test_token: TestToken, token: Token, orig_str: []const u8) !void {
-    try testing.expectEqual(test_token.line, token.line);
-    try testing.expectEqual(test_token.token_type, token.token_type);
+fn expectToken(expected_token: ExpectedToken, token: Token, orig_str: []const u8) !void {
+    var ok = true;
+    testing.expectEqual(expected_token.line, token.line) catch { ok = false; };
+    testing.expectEqual(expected_token.token_type, token.token_type) catch { ok = false; };
     if (token.token_type == TokenType.Eof) {
-        try testing.expectEqual(orig_str.len, token.offset);
-        try testing.expectEqual(@as(usize, 0), token.size);
+        testing.expectEqual(orig_str.len, token.offset) catch { ok = false; };
+        testing.expectEqual(@as(usize, 0), token.size) catch { ok = false; };
 
         // also make sure our test token is correct just to make sure
-        try testing.expectEqualSlices(u8, "", test_token.str);
+        testing.expectEqualSlices(u8, "", expected_token.str) catch { ok = false; };
     }
-    try testing.expectEqualSlices(u8, test_token.str, orig_str[token.offset .. token.offset + token.size]);
+    const actual = orig_str[token.offset .. token.offset + token.size];
+    testing.expectEqualStrings(expected_token.str, actual) catch { ok = false; };
+
+    if (!ok) {
+        return error.TokenTestFailure;
+    }
 }
 
-fn doTokenTest(str: []const u8, test_tokens: []const TestToken) !void {
+fn doTokenTest(str: []const u8, expected_tokens: []const ExpectedToken) !void {
     var string_reader = StringReader.init(str);
     var tokenizer = makeTokenizer(string_reader);
-    for (test_tokens) |token, i| {
-        errdefer std.log.err("Token {} failed test.", .{i});
-        try expectToken(token, try tokenizer.next(), str);
+    for (expected_tokens) |token, i| {
+        const actual = try tokenizer.next();
+        errdefer {
+            std.debug.print(
+                \\
+                \\Expected (#{}):
+                \\  ExpectedToken{{ .str = {s}, .line = {}, .token_type = {} }}
+                \\Actual:
+                \\  {}
+                \\
+                \\
+            , .{i, token.str, token.line, token.token_type, actual});
+        }
+        try expectToken(token, actual, str);
     }
 }
 
 test "simple comment" {
     const str = "// this is a comment";
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = str, .line = 1, .token_type = TokenType.Comment },
-        TestToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = str, .line = 1, .token_type = TokenType.Comment },
+        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
-    try doTokenTest(str, &test_tokens);
+    try doTokenTest(str, &expected_tokens);
+}
+
+test "comment at end of line" {
+    const str =
+        \\name = Zooce // this is a comment
+        \\one = 12345// this is a comment too
+    ;
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "name", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "Zooce", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "// this is a comment", .line = 1, .token_type = TokenType.Comment },
+        ExpectedToken{ .str = "\n", .line = 1, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "one", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "12345", .line = 2, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "// this is a comment too", .line = 2, .token_type = TokenType.Number },
+    };
+    try doTokenTest(str, &expected_tokens);
 }
 
 // TODO: test complex comment - i.e. make sure no special Unicode characters mess this up
 
-test "strings" {
+test "bare strings" {
     // IMPORTANT - this string is only for testing - it is not a valid zombie-file string
-    const str = "I am.a,bunch\nstrings 01abc 123xyz";
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = "I", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "am", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = ".", .line = 1, .token_type = TokenType.Dot },
-        TestToken{ .str = "a", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
-        TestToken{ .str = "bunch", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = "\n", .line = 1, .token_type = TokenType.Newline },
-        TestToken{ .str = "strings", .line = 2, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "01abc", .line = 2, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "123xyz", .line = 2, .token_type = TokenType.String },
-        TestToken{ .str = "", .line = 2, .token_type = TokenType.Eof },
+    const str = "I am.a,bunch{of\nstrings 01abc 123xyz";
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "I", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "am", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = ".", .line = 1, .token_type = TokenType.Dot },
+        ExpectedToken{ .str = "a", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
+        ExpectedToken{ .str = "bunch", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
+        ExpectedToken{ .str = "of", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "\n", .line = 1, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "strings", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "01abc", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "123xyz", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "", .line = 2, .token_type = TokenType.Eof },
     };
-    try doTokenTest(str, &test_tokens);
+    try doTokenTest(str, &expected_tokens);
 }
 
 test "quoted string" {
-    const str = "\"this is a \\\"quoted\\\" string\"";
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = str, .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
+    const str = "\"this is a \\\"quoted\\\" string\\u1234 \t\r\n$(){}[].,=\"";
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = str, .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
-    try doTokenTest(str, &test_tokens);
+    try doTokenTest(str, &expected_tokens);
 }
 
 test "zeros" {
     // IMPORTANT - this string is only for testing - it is not a valid zombie-file string
     const str = "0 0\t0.0,0\r\n0\n";
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = "\t", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = ".", .line = 1, .token_type = TokenType.Dot },
-        TestToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
-        TestToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = "\r\n", .line = 1, .token_type = TokenType.Newline },
-        TestToken{ .str = "0", .line = 2, .token_type = TokenType.Number },
-        TestToken{ .str = "\n", .line = 2, .token_type = TokenType.Newline },
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "\t", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = ".", .line = 1, .token_type = TokenType.Dot },
+        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
+        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "\r\n", .line = 1, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "0", .line = 2, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "\n", .line = 2, .token_type = TokenType.Newline },
     };
-    try doTokenTest(str, &test_tokens);
+    try doTokenTest(str, &expected_tokens);
+}
+
+test "numbers" {
+    // IMPORTANT - this string is only for testing - it is not a valid zombie-file string
+    const str = "123 1 0123 932 42d";
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "123", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "1", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "0123", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "932", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "42d", .line = 1, .token_type = TokenType.String },
+    };
+    try doTokenTest(str, &expected_tokens);
 }
 
 // TODO: the following tests aren't really testing macros - move these to the parsing file
@@ -451,16 +550,16 @@ test "simple macro declaration" {
     const str =
         \\$name = "Zooce Dark"
     ;
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        TestToken{ .str = "name", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "\"Zooce Dark\"", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
+        ExpectedToken{ .str = "name", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "\"Zooce Dark\"", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
-    try doTokenTest(str, &test_tokens);
+    try doTokenTest(str, &expected_tokens);
 }
 
 test "macro object declaration" {
@@ -469,51 +568,51 @@ test "macro object declaration" {
         \\    foreground = #2b2b2b
         \\}
     ;
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        TestToken{ .str = "black_forground", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
-        TestToken{ .str = "\n", .line = 1, .token_type = TokenType.Newline },
-        TestToken{ .str = "    ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "foreground", .line = 2, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
-        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "#2b2b2b", .line = 2, .token_type = TokenType.String },
-        TestToken{ .str = "\n", .line = 2, .token_type = TokenType.Newline },
-        TestToken{ .str = "}", .line = 3, .token_type = TokenType.CloseCurly },
-        TestToken{ .str = "", .line = 3, .token_type = TokenType.Eof },
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
+        ExpectedToken{ .str = "black_forground", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
+        ExpectedToken{ .str = "\n", .line = 1, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "    ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "foreground", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "#2b2b2b", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "\n", .line = 2, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "}", .line = 3, .token_type = TokenType.CloseCurly },
+        ExpectedToken{ .str = "", .line = 3, .token_type = TokenType.Eof },
     };
-    try doTokenTest(str, &test_tokens);
+    try doTokenTest(str, &expected_tokens);
 }
 
 test "macro array declaration" {
     const str =
         \\$ports = [ 8000, 8001, 8002 ]
     ;
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        TestToken{ .str = "ports", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "[", .line = 1, .token_type = TokenType.OpenSquare },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "8000", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "8001", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "8002", .line = 1, .token_type = TokenType.Number },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "]", .line = 1, .token_type = TokenType.CloseSquare },
-        TestToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
+        ExpectedToken{ .str = "ports", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "[", .line = 1, .token_type = TokenType.OpenSquare },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "8000", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "8001", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "8002", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "]", .line = 1, .token_type = TokenType.CloseSquare },
+        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
-    try doTokenTest(str, &test_tokens);
+    try doTokenTest(str, &expected_tokens);
 }
 
 test "macro with parameters declaration" {
@@ -523,38 +622,38 @@ test "macro with parameters declaration" {
         \\\t settings = $settings
         \\}
     ;
-    const test_tokens = [_]TestToken{
-        TestToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        TestToken{ .str = "scope_def", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = "(", .line = 1, .token_type = TokenType.OpenParen },
-        TestToken{ .str = "scope", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
-        TestToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "settings", .line = 1, .token_type = TokenType.String },
-        TestToken{ .str = ")", .line = 2, .token_type = TokenType.CloseParen },
-        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
-        TestToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "{", .line = 2, .token_type = TokenType.OpenCurly },
-        TestToken{ .str = "\n", .line = 2, .token_type = TokenType.Newline },
-        TestToken{ .str = "    ", .line = 2, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "scope", .line = 2, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 3, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
-        TestToken{ .str = " ", .line = 3, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "$", .line = 3, .token_type = TokenType.Dollar },
-        TestToken{ .str = "scope", .line = 3, .token_type = TokenType.String },
-        TestToken{ .str = ",", .line = 3, .token_type = TokenType.Comma },
-        TestToken{ .str = "\n", .line = 3, .token_type = TokenType.Newline },
-        TestToken{ .str = "\t ", .line = 3, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "settings", .line = 4, .token_type = TokenType.String },
-        TestToken{ .str = " ", .line = 4, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "=", .line = 4, .token_type = TokenType.Equals },
-        TestToken{ .str = " ", .line = 4, .token_type = TokenType.WhiteSpace },
-        TestToken{ .str = "$", .line = 4, .token_type = TokenType.Dollar },
-        TestToken{ .str = "settings", .line = 4, .token_type = TokenType.String },
-        TestToken{ .str = "\n", .line = 4, .token_type = TokenType.Newline },
-        TestToken{ .str = "}", .line = 5, .token_type = TokenType.CloseCurly },
-        TestToken{ .str = "", .line = 5, .token_type = TokenType.Eof },
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
+        ExpectedToken{ .str = "scope_def", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "(", .line = 1, .token_type = TokenType.OpenParen },
+        ExpectedToken{ .str = "scope", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = ",", .line = 1, .token_type = TokenType.Comma },
+        ExpectedToken{ .str = " ", .line = 1, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "settings", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = ")", .line = 2, .token_type = TokenType.CloseParen },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "{", .line = 2, .token_type = TokenType.OpenCurly },
+        ExpectedToken{ .str = "\n", .line = 2, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "    ", .line = 2, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "scope", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 3, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 3, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "$", .line = 3, .token_type = TokenType.Dollar },
+        ExpectedToken{ .str = "scope", .line = 3, .token_type = TokenType.String },
+        ExpectedToken{ .str = ",", .line = 3, .token_type = TokenType.Comma },
+        ExpectedToken{ .str = "\n", .line = 3, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "\t ", .line = 3, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "settings", .line = 4, .token_type = TokenType.String },
+        ExpectedToken{ .str = " ", .line = 4, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "=", .line = 4, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = " ", .line = 4, .token_type = TokenType.WhiteSpace },
+        ExpectedToken{ .str = "$", .line = 4, .token_type = TokenType.Dollar },
+        ExpectedToken{ .str = "settings", .line = 4, .token_type = TokenType.String },
+        ExpectedToken{ .str = "\n", .line = 4, .token_type = TokenType.Newline },
+        ExpectedToken{ .str = "}", .line = 5, .token_type = TokenType.CloseCurly },
+        ExpectedToken{ .str = "", .line = 5, .token_type = TokenType.Eof },
     };
 }
