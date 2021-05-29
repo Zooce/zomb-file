@@ -119,19 +119,21 @@ comment
 
 ------------------------------------------------------- Lexical Grammar (Tokens)
 
-.Newline = newline
-.Dollar = '$'
-.OpenParen = '('
+.CloseCurly = '}'
 .CloseParen = ')'
+.CloseSquare = ']'
 .Comma = ','
+.Dollar = '$'
 .Dot = '.'
 .Equals = '='
-.OpenSquare = '['
-.ReverseSolidus = '\'
-.CloseSquare = ']'
 .OpenCurly = '{'
-.CloseCurly = '}'
-.String = string
-.Comment = comment
+.OpenParen = '('
+.OpenSquare = '['
+
 .Range = '..'
+.Comment = comment
+.Newline = newline
 .Number = number
+.String = string
+
+.Eof = end of the file
