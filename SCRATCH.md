@@ -212,3 +212,84 @@ key = $macro(
         ( need, more, structure,
           $again_wtf_long_macro_name(for, the, params),
 )
+
+
+////////////////////////////////////////////////////////////////////////////////
+
+1 = {
+    11 = {
+        111 = test
+    }
+}
+
+.Decl       ('1' .Number)       -> .Key         []
+.Key        ('=' .Equals)       -> .Assign      []
+.Assign     ('{' .OpenCurly)    -> .Object      [obj_1]
+.Object     ('\n' .Newline)     -> .Object      [obj_1]
+.Object     ('11' .Number)      -> .Key         [obj_1]
+.Key        ('=' .Equals)       -> .Value       [obj_1]
+.Value      ('{' .OpenCurly)    -> .Object      [obj_2 obj_1]
+.Object     ('\n' .Newline)     -> .Object      [obj_2 obj_1]
+.Object     ('111' .Number)     -> .Key         [obj_2 obj_1]
+.Key        ('=' .Equals)       -> .Value       [obj_2 obj_1]
+.Value      ('test' .String)    -> .KvPair      [obj_2 obj_1]
+.KvPair     ('\n' .Newline)     -> .Object      [obj_2 obj_1]
+.Object     ('}' .CloseCurly)   -> .Object      [obj_1]
+.Object     ('\n' .Newline)     -> .Object      [obj_1]
+.Object     ('}' .CloseCurly)   ->
+
+
+.Decl
+    - ('1' .Number) <enter .KvPair>
+    .KvPair
+        - ('=' .Equals)
+        - ('{' .OpenCurly) <enter .Object>
+        .Object
+            - ('\n' .Newline)
+            - ('11' .Number) <enter .KvPair>
+            .KvPair
+                - ('=' .Equals)
+                - ('{' .OpenCurly) <enter .Object>
+                .Object
+                    - ('\n' .Newline)
+                    - ('111' .Number) <enter .KvPair>
+                    .KvPair
+                        - ('=' .Equals)
+                        - ('test' .String)
+                        - ('\n' .Newline) <exit .KvPair>
+                    - ('}' .CloseCurly) <exit .Object>
+                - ('\n' .Newline) <exit .KvPair>
+            - ('}' .CloseCurly) <exit .Object>
+        - ('' .Eof) <exit .KvPair>
+    - ('' .Eof) <exit .Decl>
+- ('' .Eof) <done>
+
+
+.Decl
+- ('1' .Number) <enter .KvPair>
+.KvPair
+- ('=' .Equals) [expect VALUE]
+- ('{' .OpenCurly) <enter .Object>
+    .Object
+    - ('\n' .Newline)
+    - ('11' .Number) <enter .KvPair>
+    .KvPair
+    - ('=' .Equals) [expect VALUE]
+    - ('{' .OpenCurly) <enter .Object>
+        .Object
+        - ('\n' .Newline)
+        - ('111' .Number) <enter .KvPair>
+        .KvPair
+        - ('=' .Equals) [expect VALUE]
+        - ('test' .String)
+        - ('\n' .Newline) <exit .KvPair>
+        .Object
+        - ('}' .CloseCurly) <exit .Object>
+    .KvPair
+    - ('\n' .Newline) <exit .KvPair>
+    .Object
+    - ('}' .CloseCurly) <exit .Object>
+.KvPair
+- ('' .Eof) <exit .KvPair>
+.Decl
+- ('' .Eof) <done>

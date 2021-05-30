@@ -27,6 +27,15 @@
 - Continue to the next breakpoint with `$ (lldb) thread continue`
 - Delete a breakpoint with `$ (lldb) br del <breakpoint number>`
 
+Basic Commands
+- `r` = run the exectuable
+- `n` = step over
+- `s` = step into
+- `c` = continue
+- `f` = step out
+- `v` = print local variables and function arguments
+- `p <expr>` = print result of `<expr`
+
 ## Other Tips and Tricks
 
 - How to type a unicde character into Sublime Text on Linux:

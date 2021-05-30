@@ -9,10 +9,11 @@ X | Y  =>  X or Y
 X - Y  =>  X excluding Y
 'X'    =>  'X' single character literal
 .X     =>  .X multi-character literal
+X %    =>  X is recursive
 
 
 ----------------------------------------------------------------- Syntax Grammar
--- NOTE: all white space is ignored between entities unless otherwise noted
+-- NOTE: all white space (' ' | '\t' | newline) is ignored between entities unless otherwise noted
 
 zombie-file
     +decl .Eof
@@ -21,49 +22,43 @@ decl
     kv-pair | macro-decl
 
 kv-pair
-    string assignment
-
-assignment
-    '=' value separator
+    key '=' value newline
 
 value
-    string | object | array | number | macro-use
+    string | number | object | array | macro-use
 
-object
+object %
     '{' *kv-pair '}'
 
-array
-    '[' ?( value *( separator value ) ?separator ) ']'
+array %
+    '[' ?( value *( ',' value ) ?',' ) ']'
 
 macro-decl
-    macro-key ?macro-decl-params assignment
+    macro-key ?macro-decl-params '=' value newline
 
 macro-key
-    '$' string
+    '$' key
 
 macro-decl-params
-    '(' string *( separator string ) ?separator ')'
+    '(' key *( ',' key ) ?',' ')'
 
-macro-use
+macro-use %
     macro-key ?macro-use-params *key-accessor
 
-macro-use-params
-    '(' param *( separator param ) ?separator ')'
+macro-use-params %
+    '(' param *( ',' param ) ?',' ')'
 
 param
-    string | macro-use
+    key | macro-use
 
 key-accessor
-    '.' string | '[' range ']'
+    '.' key | '[' range ']'
 
 range (always inclusive)
     ?number '..' ?number
 
 key
     string | number
-
-separator
-    ',' | newline
 
 string
     bare_string | quoted_string
