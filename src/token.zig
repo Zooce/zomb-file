@@ -153,11 +153,11 @@ pub fn Tokenizer(comptime FileType: type) type {
             const delim_byte = std.meta.intToEnum(Delimiter, byte) catch Delimiter.None;
             switch (delim_byte) {
                 // delimiters with special handling
-                Delimiter.LineFeed => {
+                .LineFeed => {
                     self.token.token_type = TokenType.Newline;
                     self.current_line += 1;
                 },
-                Delimiter.CarriageReturn => {
+                .CarriageReturn => {
                     if ((self.peek() orelse 0) == '\n') {
                         _ = self.consume();
                         self.token.token_type = TokenType.Newline;
@@ -166,11 +166,11 @@ pub fn Tokenizer(comptime FileType: type) type {
                         return TokenizerError.CarriageReturnError;
                     }
                 },
-                Delimiter.Quote => try self.quotedString(),
-                Delimiter.ReverseSolidus => return TokenizerError.ReverseSolidusError,
+                .Quote => try self.quotedString(),
+                .ReverseSolidus => return TokenizerError.ReverseSolidusError,
 
                 // the byte is not at delimiter, so handle it accordingly
-                Delimiter.None => {
+                .None => {
                     switch (byte) {
                         // invalid control characters (white space is already a handled delimiter)
                         0x00...0x1F => return TokenizerError.InvalidControlCharacter,
@@ -393,7 +393,12 @@ pub fn Tokenizer(comptime FileType: type) type {
     };
 }
 
-// ----  Testing
+//==============================================================================
+//
+//
+//
+// Testing
+//==============================================================================
 
 const testing = std.testing;
 
@@ -487,7 +492,7 @@ test "simple comment" {
 test "comment at end of line" {
     const str =
         \\name = Zooce // this is a comment
-        \\one = 12345// this is a comment too
+        \\one = 12345// this is not a comment
     ;
     const expected_tokens = [_]ExpectedToken{
         ExpectedToken{ .str = "name", .line = 1, .token_type = TokenType.String },
@@ -497,8 +502,12 @@ test "comment at end of line" {
         ExpectedToken{ .str = "\n", .line = 1, .token_type = TokenType.Newline },
         ExpectedToken{ .str = "one", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "12345", .line = 2, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "// this is a comment too", .line = 2, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "12345//", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "this", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "is", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "not", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "a", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "comment", .line = 2, .token_type = TokenType.String },
     };
     try doTokenTest(str, &expected_tokens);
 }
