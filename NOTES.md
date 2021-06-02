@@ -1,8 +1,55 @@
 # TODOs
 
-- keep working on quoted string token parsing and testing
+- Should I alow any `value` in `macro-use-params`?
+- Executive decision = commas and/or newlines between entities is optional! Need to add this to the grammar now.
+- How do I add multi-line strings?
+- Better test cases
+    - kv-pair
+        string = number
+        string = string
+        string = ml-string
+        string = empty object
+        string = object
+        string = empty array
+        string = array
+        string = macro-use (+ all combos of params|keys|ranges)
+        number = number
+        number = string
+        ...
+    - object
+        object in an object
+        object in an array
+        object in a macro-use
+    - array
+        array in an object
+        array in an array
+        array in a macro-use
+    - ml-string
+        ml-string in an object
+        ml-string in an array
+        ml-string in a macro-use
+    - bare-string
+        ?
+    - quoted-string
+        ?
 
+----
 
+# ROADMAP
+
+- Include a CLI that allows the user to do the following:
+    - Convert a given ZOMBIE file to:
+        - JSON
+        - TOML
+        - YAML
+    - Given a ZOMBIE file, produce another ZOMBIE file with all macros evaluated
+    - Format a given ZOMBIE file based on eiither the rules defined in a ZOMBIE-FMT file or a default set of huristics
+- Create a C-ABI compatible library for reading and writing ZOMBIE files
+    - Maybe also create the bindings for popular languages:
+        - Python
+        - Rust
+        - C/C++ (would they be able to just use the Zig C-ABI one directly?)
+        - What else?
 
 ---
 

@@ -10,66 +10,71 @@ X - Y  =>  X excluding Y
 'X'    =>  'X' single character literal
 .X     =>  .X multi-character literal
 X %    =>  X is recursive
+X<p>   =>  X takes a parameter p (p can be used in the production)
+<p>    =>  p is a parameter of a rule
 
 
 ----------------------------------------------------------------- Syntax Grammar
--- NOTE: all white space (' ' | '\t' | newline) is ignored between entities unless otherwise noted
+-- NOTE: all white space (whitespace | newline) is ignored between entities unless otherwise noted
 
 zombie-file
     +decl .Eof
 
 decl
-    kv-pair | macro-decl
+    ( kv-pair | macro-decl ) separator
 
-kv-pair
-    key '=' value newline
+kv-pair %
+    key '=' value
 
 value
-    string | number | object | array | macro-use
+    number | string | ml-string | object | array | macro-use
 
 object %
-    '{' *kv-pair '}'
+    '{' ?list<kv-pair> '}'
 
 array %
-    '[' ?( value *( ',' value ) ?',' ) ']'
+    '[' ?list<value> ']'
 
 macro-decl
-    macro-key ?macro-decl-params '=' value newline
+    macro-key ?macro-decl-params '=' value
 
 macro-key
     '$' key
 
 macro-decl-params
-    '(' key *( ',' key ) ?',' ')'
+    '(' list<key> ')'
 
 macro-use %
     macro-key ?macro-use-params *key-accessor
 
-macro-use-params %
-    '(' param *( ',' param ) ?',' ')'
+macro-use-params
+    '(' list<value> ')'
 
-param
-    key | macro-use
+list<type>
+    <type> *( separator <type> ) ?separator
 
 key-accessor
-    '.' key | '[' range ']'
+    '.' key | '[' inclusive-range ']'
 
-range (always inclusive)
+inclusive-range
     ?number '..' ?number
 
 key
     string | number
 
-string
-    bare_string | quoted_string
+ml-string
+    +( '\\' *( character | whitespace ) newline )
 
-bare_string
+string
+    bare-string | quoted-string
+
+bare-string
     +( character - delimiter )
 
-quoted_string
-    '"' escaped_string '"'
+quoted-string
+    '"' escaped-string '"'
 
-escaped_string
+escaped-string
     *( *( character - escape ) *( '\' escape ) )
 
 character
@@ -102,8 +107,14 @@ delimiter
     '{'   // 0x7B .OpenCurly
     '}'   // 0x7D .CloseCurly
 
+separator
+    whitespace | newline | ','
+
 newline
     '\n' | '\r\n'
+
+whitespace
+    ' ' | '\t'
 
 
 -- NOTE: comments are special because they can be placed anywhere as long as

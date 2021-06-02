@@ -217,79 +217,196 @@ key = $macro(
 ////////////////////////////////////////////////////////////////////////////////
 
 1 = {
-    11 = {
-        111 = test
+    11 = [
+        112, 113
+    ]
+    12 = $m1(0, $m2(a, b))
+    13 = {
+        131 = $m3
     }
 }
 
-.Decl       ('1' .Number)       -> .Key         []
-.Key        ('=' .Equals)       -> .Assign      []
-.Assign     ('{' .OpenCurly)    -> .Object      [obj_1]
-.Object     ('\n' .Newline)     -> .Object      [obj_1]
-.Object     ('11' .Number)      -> .Key         [obj_1]
-.Key        ('=' .Equals)       -> .Value       [obj_1]
-.Value      ('{' .OpenCurly)    -> .Object      [obj_2 obj_1]
-.Object     ('\n' .Newline)     -> .Object      [obj_2 obj_1]
-.Object     ('111' .Number)     -> .Key         [obj_2 obj_1]
-.Key        ('=' .Equals)       -> .Value       [obj_2 obj_1]
-.Value      ('test' .String)    -> .KvPair      [obj_2 obj_1]
-.KvPair     ('\n' .Newline)     -> .Object      [obj_2 obj_1]
-.Object     ('}' .CloseCurly)   -> .Object      [obj_1]
-.Object     ('\n' .Newline)     -> .Object      [obj_1]
-.Object     ('}' .CloseCurly)   ->
-
-
-.Decl
-    - ('1' .Number) <enter .KvPair>
-    .KvPair
-        - ('=' .Equals)
-        - ('{' .OpenCurly) <enter .Object>
-        .Object
-            - ('\n' .Newline)
-            - ('11' .Number) <enter .KvPair>
-            .KvPair
-                - ('=' .Equals)
-                - ('{' .OpenCurly) <enter .Object>
-                .Object
-                    - ('\n' .Newline)
-                    - ('111' .Number) <enter .KvPair>
-                    .KvPair
-                        - ('=' .Equals)
-                        - ('test' .String)
-                        - ('\n' .Newline) <exit .KvPair>
-                    - ('}' .CloseCurly) <exit .Object>
-                - ('\n' .Newline) <exit .KvPair>
-            - ('}' .CloseCurly) <exit .Object>
-        - ('' .Eof) <exit .KvPair>
-    - ('' .Eof) <exit .Decl>
-- ('' .Eof) <done>
-
-
 .Decl
 - ('1' .Number) <enter .KvPair>
-.KvPair
+.KvPair [expect EQUALS]
 - ('=' .Equals) [expect VALUE]
-- ('{' .OpenCurly) <enter .Object>
-    .Object
-    - ('\n' .Newline)
+- ('{' .OpenCurly) <push .Object>
+    .Object [expect KEY | CLOSE_CURLY]
+    - ('\n' .Newline) [expect KEY | CLOSE_CURLY]
     - ('11' .Number) <enter .KvPair>
-    .KvPair
+    .KvPair [expect EQUALS]
     - ('=' .Equals) [expect VALUE]
-    - ('{' .OpenCurly) <enter .Object>
-        .Object
-        - ('\n' .Newline)
-        - ('111' .Number) <enter .KvPair>
-        .KvPair
-        - ('=' .Equals) [expect VALUE]
-        - ('test' .String)
-        - ('\n' .Newline) <exit .KvPair>
-        .Object
-        - ('}' .CloseCurly) <exit .Object>
-    .KvPair
+    - ('[' .OpenSquare) <push .Array>
+        .Array [expect VALUE | CLOSE_SQUARE]
+        - ('\n' .Newline) [expect VALUE | CLOSE_SQUARE]
+        - ('112' .Number) [expect COMMA | CLOSE_SQUARE]
+        - (',' .Comma) [expect VALUE]
+        - ('113' .Number) [expect COMMA | CLOSE_SQUARE]
+        - ('\n' .Newline) [expect COMMA | CLOSE_SQUARE]
+        - (']' .CloseSquare) <pop .Array>
+    .KvPair [expect NEWLINE] <-- go back to .KvPair because the top of the stack is now an Object
     - ('\n' .Newline) <exit .KvPair>
-    .Object
-    - ('}' .CloseCurly) <exit .Object>
-.KvPair
-- ('' .Eof) <exit .KvPair>
-.Decl
-- ('' .Eof) <done>
+    .Object [expect KEY | CLOSE_CURLY]
+    - ('12' .Number) <enter .KvPair>
+    .KvPair [expect EQUALS]
+    - ('=' .Equals) [expect VALUE]
+    - ('$' .Dollar) <enter .MacroUse>
+    .MacroUse(after=NEWLINE) [expect KEY]
+    - ('m1' .String) [expect OPEN_PAREN | after=NEWLINE]
+    - ('(' .OpenParen) <push .MacroParams>
+        .MacroParams [expect VALUE]
+        - ('0' .Number) [expect COMMA | CLOSE_PAREN]
+        - (',' .Comma) [expect VALUE | CLOSE_PAREN]
+        - ('$' .Dollar) <enter .MacroUse>
+        .MacroUse(after=CLOSE_PAREN) [expect KEY]
+        - ('m2' .String) [expect OPEN_PAREN | after=CLOSE_PAREN]
+        - ('(' .OpenParen) <push .MacroParams>
+            .MacroParams [expect VALUE]
+            - ('a' .String) [expect COMMA | CLOSE_PAREN]
+            - (',' .Comma) [expect VALUE | CLOSE_PAREN]
+            - ('b' .String) [expect COMMA | CLOSE_PAREN]
+            - (')' .CloseParen) <pop .MacroParams>
+        .MacroUse [expect CLOSE_PAREN]
+        - (')' .CloseParen) <exit .MacroUse>
+        .MacroParams <--------------------------------- left off here
+    - ('\n' .Newline) <exit .KvPair>
+    .Object [expect KEY | CLOSE_CURLY]
+    - ('13' .Number) <enter .KvPair>
+    .KvPair [expect EQUALS]
+    - ('=' .Equals) [expect VALUE]
+    - ('{' .OpenCurly) <push .Object>
+        .Object [expect KEY | CLOSE_CURLY]
+        - ('\n' .Newline) [expect KEY | CLOSE_CURLY]
+        - ('131' .Number) <enter .KvPair>
+        .KvPair [expect EQUALS]
+        - ('=' .Equals) [expect VALUE]
+        - ('test' .String) [expect NEWLINE]
+        - ('\n' .Newline) <exit .KvPair>
+        .Object [expect KEY | CLOSE_CURLY]
+        - ('}' .CloseCurly) <pop .Object>
+    .KvPair [expect NEWLINE]
+    - ('\n' .Newline) <exit .KvPair>
+    .Object [expect KEY | CLOSE_CURLY]
+    - ('}' .CloseCurly) <pop .Object>
+.KvPair [expect NEWLINE]
+
+
+----
+
+1 = {
+    11 = [
+        112, 113
+    ]
+    12 =
+        $m1(
+            0,
+            {
+                key = value
+                key = [ array, values ]
+            },
+            $m2(a, b)
+        )
+    13 = {
+        131 = $m3
+    }
+}
+
+
+----- Just allow any white space or a comma as the entity delimiter?
+
+key = value key = value
+key = { key = value key = value } key = value
+key = [ value value value ] key = value
+key = [ $macro({ key = value key = value } [ value value ] value) { key = value } ]
+
+key = value, key = value
+key = { key = value, key = value }, key = value
+key = [ value, value, value, ], key = value
+key = [ $macro({ key = value, key = value }, [ value, value ], value), { key = value } ]
+
+--> Here's how this would look with the current restrictions (and some option formatting):
+
+key = value
+key = value
+key = { key = value
+        key = value }
+key = value
+key = [ value, value, value ]
+key = value
+key = [ $macro({ key = value
+                 key = value }, [ value, value ], value), { key = value
+                                                          } ]
+
+-> Minified version of 1
+
+key=value key=value key={key=value key=value}key=value key=[value value value]key=value key=[$macro({key=value key=value}[value value]value){key=value}]
+
+
+--- What if all macros must have a parameter set (which can be empty)?
+
+$name = Zooce
+$colors = {
+    black = #000000
+    white = $ffffff
+}
+$ports = [ 800 900 ]
+$idk( one two three ) = {
+    abc = $one
+    def = $two
+    ghi = [ $three ]
+}
+
+name = $name
+foreground = $colors.black
+all_colors = $colors
+port = $ports[0..]
+something = $idk(
+    $name
+    { key = value }
+    $idk( a b $colors.black )
+)
+
+// JSON version of above
+
+{
+    "name": "Zooce",
+    "foreground": "#000000",
+    "all_colors": { black: "#000000", white: "#ffffff" },
+    "port": [ "800", "900" ],
+    "something": {
+        "abc": "Zooce",
+        "def": { "key": "value" },
+        "ghi": {
+            "abc": "a",
+            "def": "b",
+            "ghi": "#000000"
+        }
+    }
+}
+
+// ZOMBIE version of JSON above (without macros)
+
+name = Zooce
+foreground = #000000
+all_colors = { black = #000000 white = #ffffff }
+port = [ 800 900 ]
+something = {
+    abc = Zooce
+    def = { key = value }
+    ghi = {
+        abc = a
+        def = b
+        ghi = #000000
+    }
+}
+message = \\This is a multi-line
+          \\  string which I'm not sure is that cool
+          \\but what do you think?
+
+message = "This is a multi-line"
+          "  string which I'm not sure is that cool"
+          "but what do you think?" = 1     // this case is a problem
+
+message = "This is a multi-line
+             string which I'm not sure is that cool     // how to handle the space in the front?
+           but what do you think?"

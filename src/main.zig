@@ -1,14 +1,14 @@
 const std = @import("std");
-const makeTokenizer = @import("token.zig").makeTokenizer;
 
-const MAX_READ_LEN: usize = 100;
+const buffer_size: usize = 4 * 1024; // 4k seems reasonable...
+const Tokenizer = @import("token.zig").Tokenizer(std.fs.File, buffer_size);
 
 const ZombieError = error {
     InvalidArgument
 };
 
 pub fn main() anyerror!void {
-    const file = fileblk: {
+    var file = fileblk: {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         const alloc = &gpa.allocator;
 
@@ -24,28 +24,9 @@ pub fn main() anyerror!void {
         std.log.info("Reading from {s}", .{args[1]});
         break :fileblk file;
     };
-    defer file.close(); // TODO: can we do this earlier?
 
-    var tokenizer = makeTokenizer(file);
+    var tokenizer = Tokenizer.init(&file);
+    defer tokenizer.deinit();
+
     const token = try tokenizer.next();
-
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // const alloc = &gpa.allocator;
-    // var tokens = std.ArrayList(Token).init(alloc);
-    // defer tokens.deinit();
-
-    // var scanner = Scanner{ .reader = file.reader() };
-
-    // var buffer: [MAX_READ_LEN]u8 = undefined;
-    // scanloop: while(true) {
-    //     if (readLine(reader, &buffer)) |line| {
-    //         std.log.info("> {s}", .{line});
-    //     } else {
-    //         break :scanloop;
-    //     }
-    // }
-
-    // TODO: traverse AST and do variable substitution
-
-    // TODO: write AST to a JSON file
 }
