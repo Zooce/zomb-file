@@ -218,78 +218,100 @@ key = $macro(
 
 1 = {
     11 = [
-        112, 113
+        112 113
     ]
-    12 = $m1(0, $m2(a, b))
+    12 = $m1 (
+            0
+            $m2 (
+                a
+                b
+            )
+        )
+        .key
     13 = {
         131 = $m3
     }
 }
 
-.Decl
+.Decl [expect STRING | NUMBER | DOLLAR]
 - ('1' .Number) <enter .KvPair>
-.KvPair [expect EQUALS]
+.KvPair(no-macro) [expect EQUALS]
 - ('=' .Equals) [expect VALUE]
-- ('{' .OpenCurly) <push .Object>
-    .Object [expect KEY | CLOSE_CURLY]
-    - ('\n' .Newline) [expect KEY | CLOSE_CURLY]
+- ('{' .OpenCurly) <push .Object> |object <
+    .Object [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
     - ('11' .Number) <enter .KvPair>
-    .KvPair [expect EQUALS]
+    .KvPair(no-macro) [expect EQUALS]
     - ('=' .Equals) [expect VALUE]
-    - ('[' .OpenSquare) <push .Array>
+    - ('[' .OpenSquare) <push .Array> |object array <
         .Array [expect VALUE | CLOSE_SQUARE]
-        - ('\n' .Newline) [expect VALUE | CLOSE_SQUARE]
-        - ('112' .Number) [expect COMMA | CLOSE_SQUARE]
-        - (',' .Comma) [expect VALUE]
-        - ('113' .Number) [expect COMMA | CLOSE_SQUARE]
-        - ('\n' .Newline) [expect COMMA | CLOSE_SQUARE]
-        - (']' .CloseSquare) <pop .Array>
-    .KvPair [expect NEWLINE] <-- go back to .KvPair because the top of the stack is now an Object
-    - ('\n' .Newline) <exit .KvPair>
-    .Object [expect KEY | CLOSE_CURLY]
+        - ('112' .Number) [expect VALUE | CLOSE_SQUARE]
+        - ('113' .Number) [expect VALUE | CLOSE_SQUARE]
+        - (']' .CloseSquare) <pop .Array> |object <
+    .Object [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
     - ('12' .Number) <enter .KvPair>
-    .KvPair [expect EQUALS]
+    .KvPair(no-macro) [expect EQUALS]
     - ('=' .Equals) [expect VALUE]
-    - ('$' .Dollar) <enter .MacroUse>
-    .MacroUse(after=NEWLINE) [expect KEY]
-    - ('m1' .String) [expect OPEN_PAREN | after=NEWLINE]
-    - ('(' .OpenParen) <push .MacroParams>
-        .MacroParams [expect VALUE]
-        - ('0' .Number) [expect COMMA | CLOSE_PAREN]
-        - (',' .Comma) [expect VALUE | CLOSE_PAREN]
-        - ('$' .Dollar) <enter .MacroUse>
-        .MacroUse(after=CLOSE_PAREN) [expect KEY]
-        - ('m2' .String) [expect OPEN_PAREN | after=CLOSE_PAREN]
-        - ('(' .OpenParen) <push .MacroParams>
+    - ('$' .Dollar) <push .MacroUse> |object use <
+        .MacroUse(after=STRING|NUMBER|DOLLAR) [expect STRING | NUMBER | DOLLAR]
+        - ('m1' .String) [expect OPEN_PAREN | DOT | OPEN_SQUARE | after]
+        - ('(' .OpenParen) <push .MacroParams> |object use params <
             .MacroParams [expect VALUE]
-            - ('a' .String) [expect COMMA | CLOSE_PAREN]
-            - (',' .Comma) [expect VALUE | CLOSE_PAREN]
-            - ('b' .String) [expect COMMA | CLOSE_PAREN]
-            - (')' .CloseParen) <pop .MacroParams>
-        .MacroUse [expect CLOSE_PAREN]
-        - (')' .CloseParen) <exit .MacroUse>
-        .MacroParams <--------------------------------- left off here
+            - ('0' .Number) [expect VALUE | CLOSE_PAREN]
+            - ('$' .Dollar) <push .MacroUse> |object use params use <
+                .MacroUse(after=CLOSE_PAREN) [expect STRING | NUMBER | DOLLAR]
+                - ('m2' .String) [expect OPEN_PAREN | DOT | OPEN_SQUARE | VALUE]
+                - ('(' .OpenParen) <push .MacroParams> |object use params use params <
+                    .MacroParams [expect VALUE]
+                    - ('a' .String) [expect VALUE | CLOSE_PAREN]
+                    - ('b' .String) [expect VALUE | CLOSE_PAREN]
+                    - (')' .CloseParen) <pop .MacroParams> |object use params use <
+                .MacroUse [expect DOT | OPEN_SQUARE]
+                - (')' .CloseParen) <pop .MacroUse> |object use params <
+            .MacroParams [expect VALUE | CLOSE_PAREN]
+            -
+
+
+    .Object [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
     - ('\n' .Newline) <exit .KvPair>
-    .Object [expect KEY | CLOSE_CURLY]
+    .Object [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
     - ('13' .Number) <enter .KvPair>
     .KvPair [expect EQUALS]
     - ('=' .Equals) [expect VALUE]
     - ('{' .OpenCurly) <push .Object>
-        .Object [expect KEY | CLOSE_CURLY]
-        - ('\n' .Newline) [expect KEY | CLOSE_CURLY]
+        .Object [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
+        - ('\n' .Newline) [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
         - ('131' .Number) <enter .KvPair>
         .KvPair [expect EQUALS]
         - ('=' .Equals) [expect VALUE]
         - ('test' .String) [expect NEWLINE]
         - ('\n' .Newline) <exit .KvPair>
-        .Object [expect KEY | CLOSE_CURLY]
+        .Object [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
         - ('}' .CloseCurly) <pop .Object>
     .KvPair [expect NEWLINE]
     - ('\n' .Newline) <exit .KvPair>
-    .Object [expect KEY | CLOSE_CURLY]
+    .Object [expect STRING | NUMBER | DOLLAR | CLOSE_CURLY]
     - ('}' .CloseCurly) <pop .Object>
 .KvPair [expect NEWLINE]
 
+What is a State?
+
+- It has a name (duh).
+- It has an entry condition.
+- It has an exit condition.
+- It has an expected set of the next token.
+- A "nested" state can be pushed onto and popped off of a stack.
+    - We need this because we'll need to know what State to exit to.
+
+What if `macro-decl` was just a special case of `kv-pair` where we simply keep some meta-data around
+if the key of `kv-pair` has a `$` preceeding it? We could set a boolean like `parsing_macro_decl` to
+true and then when we enter the .KvPair state, we can expect either an EQUALS or MACRO_DECL_PARAMS.
+If we encounter teh MACRO_DECL_PARAMS, then parse those params and save them in whatever data
+structure we're using to store macro declarations, then keep parsing .KvPair as usual, but with the
+added state of `parsing_macro_decl` we can keep track of where params are used, and then at the end
+store the entire macro (which will be used for replacement) into our macro data structure.
+
+Basically, I'm saying, let's treat a macro declaration as a .KvPair but have a boolean indicating
+that we need to save this .KvPair in macro data structure.
 
 ----
 
@@ -408,5 +430,5 @@ message = "This is a multi-line"
           "but what do you think?" = 1     // this case is a problem
 
 message = "This is a multi-line
-             string which I'm not sure is that cool     // how to handle the space in the front?
-           but what do you think?"
+  string which I'm not sure is that cool     // leading spaces count toward the string
+but what do you think?"
