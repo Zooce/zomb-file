@@ -20,7 +20,7 @@ pub fn Scanner(comptime FileType_: type, max_buffer_size_: anytype) type {
         file: *FileType_,
 
         /// Where we are in the file
-        file_cursor: usize = 0,
+        file_cursor: u64 = 0,
 
         /// The reader for the file
         reader: typeblk: {
@@ -92,6 +92,26 @@ pub fn Scanner(comptime FileType_: type, max_buffer_size_: anytype) type {
             return self.buffer[self.buffer_cursor + 1];
         }
 
+        pub fn readFrom(self: *Self, start_: u64, size_: u64, arrayList_: *std.ArrayList(u8)) !u64 {
+            const orig_pos = try self.file.getPos();
+            try self.file.seekTo(start_);
+            var buf: [1024]u8 = undefined;
+            var remaining_bytes = size_;
+            while (remaining_bytes > 0) {
+                const bytes_read = try self.reader.read(&buf);
+                const size = std.math.min(bytes_read, remaining_bytes);
+                try arrayList_.appendSlice(buf[0..size]);
+                remaining_bytes -= size;
+            }
+            self.file.seekTo(orig_pos) catch |err| {
+                // if there's more for us to read, then this error puts us in a bad state, so return it
+                if (!self.eof_in_buffer) {
+                    return err;
+                }
+            };
+            return size_ - remaining_bytes;
+        }
+
         /// Fill the buffer with some bytes from the file's reader if necessary, and report whether
         /// there bytes left to read.
         fn ensureBufferHasBytes(self: *Self) bool {
@@ -119,10 +139,11 @@ pub fn Scanner(comptime FileType_: type, max_buffer_size_: anytype) type {
 //==============================================================================
 
 const testing = std.testing;
+const test_allocator = testing.allocator;
 const StringReader = @import("testing/string_reader.zig").StringReader;
 
-const max_buffer_size: usize = 5;
-const StringScanner = Scanner(StringReader, max_buffer_size);
+const test_buffer_size: usize = 5;
+const StringScanner = Scanner(StringReader, test_buffer_size);
 
 test "scanner" {
     const str =
@@ -131,6 +152,20 @@ test "scanner" {
     ;
     var string_reader = StringReader{ .str = str };
     var scanner = StringScanner.init(&string_reader);
+    errdefer {
+        std.log.err(
+            \\
+            \\file_cursor = {}
+            \\buffer = {s}
+            \\buffer_cursor = {}
+            \\
+            , .{
+                scanner.file_cursor,
+                scanner.buffer,
+                scanner.buffer_cursor,
+            }
+        );
+    }
     defer scanner.deinit();
 
     try testing.expectEqual(@as(usize, 0), scanner.test_data.read_count);
@@ -143,16 +178,29 @@ test "scanner" {
     try testing.expectEqual(@as(u8, 'o'), scanner.advance().?);
     try testing.expectEqual(@as(usize, 1), scanner.test_data.read_count);
     try testing.expectEqual(@as(usize, 1), scanner.current_line);
+    try testing.expectEqual(@as(u64, 5), scanner.file_cursor);
+    try testing.expectEqual(@as(u64, 5), scanner.buffer_cursor);
     try testing.expectEqual(false, scanner.eof_in_buffer);
     try testing.expectEqual(@as(u8, ','), scanner.peek().?);
     try testing.expectEqual(@as(u8, '\n'), scanner.peekNext().?);
     try testing.expectEqual(@as(u8, ','), scanner.advance().?);
     try testing.expectEqual(@as(u8, '\n'), scanner.advance().?);
     try testing.expectEqual(@as(u8, ' '), scanner.advance().?);
+
+    var slice = std.ArrayList(u8).init(test_allocator);
+    defer slice.deinit();
+    const bytes_read = try scanner.readFrom(2, 3, &slice);
+    try testing.expectEqual(@as(usize, 3), bytes_read);
+    try testing.expectEqual(@as(usize, 3), slice.items.len);
+    try testing.expectEqual(@as(u64, 8), scanner.file_cursor);
+    try testing.expectEqualStrings("llo", slice.items);
+
     try testing.expectEqual(@as(u8, 'W'), scanner.advance().?);
     try testing.expectEqual(@as(u8, 'o'), scanner.advance().?);
     try testing.expectEqual(@as(usize, 2), scanner.test_data.read_count);
     try testing.expectEqual(@as(usize, 2), scanner.current_line);
+    try testing.expectEqual(@as(u64, 10), scanner.file_cursor);
+    try testing.expectEqual(@as(u64, 5), scanner.buffer_cursor);
     try testing.expectEqual(false, scanner.eof_in_buffer);
     try testing.expectEqual(@as(u8, 'l'), scanner.peekNext().?);
     try testing.expectEqual(@as(u8, 'r'), scanner.advance().?);

@@ -57,6 +57,8 @@
 ## Debugging with `lldb`
 
 - Install `lldb` with `$ sudo apt install lldb`.
+- Build a test and add it to `lldb` with:
+    - `zig test [--test-filter "<test filter string>"] src/<file>.zig --test-cmd lldb --test-cmd-bin`
 - Start `lldb` with `$ lldb`
 - Tell it where the executable is with `$ (lldb) file <path to the executable`
     - The main executable is in `zig-out/bin/zombie-file`
@@ -82,6 +84,7 @@ Basic Commands
 - `f` = step out
 - `v` = print local variables and function arguments
 - `p <expr>` = print result of `<expr`
+- `b <file>:<line>` = set a breakpoint in `<file>` on line `<line>`
 
 ## Other Tips and Tricks
 

@@ -81,10 +81,10 @@ pub const TokenType = @Type(out: {
 /// to deal with carrying around pointers and all of the stuff that goes with that.
 pub const Token = struct {
     /// The offset into the file where this token begins.
-    offset: usize = 0,
+    offset: u64 = 0,
 
     /// The number of bytes in this token.
-    size: usize = 0,
+    size: u64 = 0,
 
     /// The line in the file where this token was discovered. This is based on the number of
     /// newline tokens the Tokenizer has encountered. If the calling code has altered the cursor
@@ -153,6 +153,10 @@ pub fn Tokenizer(comptime FileType_: type, buffer_size_: anytype) type {
             }
 
             return self.token;
+        }
+
+        pub fn tokenString(self: *Self, token_: Token, arrayList_: *std.ArrayList(u8)) !u64 {
+            return try self.scanner.readFrom(token_.offset, token_.size, arrayList_);
         }
 
         // ---- Multi-Character Token Parsing
@@ -433,6 +437,7 @@ pub fn Tokenizer(comptime FileType_: type, buffer_size_: anytype) type {
 //==============================================================================
 
 const testing = std.testing;
+const test_allocator = testing.allocator;
 const StringReader = @import("testing/string_reader.zig").StringReader;
 
 const test_buffer_size: usize = 32;
@@ -452,7 +457,7 @@ fn expectToken(expected_token_: ExpectedToken, token_: Token, orig_str_: []const
     testing.expectEqual(expected_token_.token_type, token_.token_type) catch { ok = false; };
     if (token_.token_type == TokenType.Eof) {
         testing.expectEqual(orig_str_.len, token_.offset) catch { ok = false; };
-        testing.expectEqual(@as(usize, 0), token_.size) catch { ok = false; };
+        testing.expectEqual(@as(u64, 0), token_.size) catch { ok = false; };
 
         // also make sure our test token is correct just to make sure
         testing.expectEqualSlices(u8, "", expected_token_.str) catch { ok = false; };
@@ -467,10 +472,12 @@ fn expectToken(expected_token_: ExpectedToken, token_: Token, orig_str_: []const
 
 fn doTokenTest(str_: []const u8, expected_tokens_: []const ExpectedToken) !void {
     var string_reader = StringReader{ .str = str_ };
+    var token_string = std.ArrayList(u8).init(test_allocator);
+    defer token_string.deinit();
     var tokenizer = StringTokenizer.init(&string_reader);
     defer tokenizer.deinit();
-    for (expected_tokens_) |token, i| {
-        const actual = try tokenizer.next();
+    for (expected_tokens_) |expected_token, i| {
+        const actual_token = try tokenizer.next();
         errdefer {
             std.debug.print(
                 \\
@@ -480,9 +487,15 @@ fn doTokenTest(str_: []const u8, expected_tokens_: []const ExpectedToken) !void 
                 \\  {}
                 \\
                 \\
-            , .{i, token.str, token.line, token.token_type, actual});
+            , .{i, expected_token.str, expected_token.line, expected_token.token_type, actual_token});
         }
-        try expectToken(token, actual, str_);
+        try expectToken(expected_token, actual_token, str_);
+        if (actual_token.token_type != TokenType.Eof) {
+            const string_len = try tokenizer.tokenString(actual_token, &token_string);
+            try testing.expectEqual(expected_token.str.len, string_len);
+            try testing.expectEqualStrings(expected_token.str, token_string.items);
+            token_string.clearRetainingCapacity();
+        }
     }
 }
 
