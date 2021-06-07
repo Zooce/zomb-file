@@ -1,32 +1,10 @@
 const std = @import("std");
+const testing = std.testing;
 
-const buffer_size: usize = 4 * 1024; // 4k seems reasonable...
-const Tokenizer = @import("token.zig").Tokenizer(std.fs.File, buffer_size);
+export fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
 
-const ZombieError = error {
-    InvalidArgument
-};
-
-pub fn main() anyerror!void {
-    var file = fileblk: {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        const alloc = &gpa.allocator;
-
-        const args = try std.process.argsAlloc(alloc);
-        defer std.process.argsFree(alloc, args);
-
-        if (args.len != 2) {
-            std.log.err("Expected 1 argument, but found {}", .{args.len - 1});
-            return ZombieError.InvalidArgument;
-        }
-
-        const file = try std.fs.cwd().openFile(args[1], .{ .read = true });
-        std.log.info("Reading from {s}", .{args[1]});
-        break :fileblk file;
-    };
-
-    var tokenizer = Tokenizer.init(&file);
-    defer tokenizer.deinit();
-
-    const token = try tokenizer.next();
+test "basic add functionality" {
+    try testing.expect(add(3, 7) == 10);
 }

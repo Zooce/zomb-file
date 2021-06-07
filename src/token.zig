@@ -438,7 +438,7 @@ pub fn Tokenizer(comptime FileType_: type, buffer_size_: anytype) type {
 
 const testing = std.testing;
 const test_allocator = testing.allocator;
-const StringReader = @import("testing/string_reader.zig").StringReader;
+const StringReader = @import("string_reader.zig").StringReader;
 
 const test_buffer_size: usize = 32;
 const StringTokenizer = Tokenizer(StringReader, test_buffer_size);

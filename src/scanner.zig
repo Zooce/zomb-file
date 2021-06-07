@@ -140,7 +140,7 @@ pub fn Scanner(comptime FileType_: type, max_buffer_size_: anytype) type {
 
 const testing = std.testing;
 const test_allocator = testing.allocator;
-const StringReader = @import("testing/string_reader.zig").StringReader;
+const StringReader = @import("string_reader.zig").StringReader;
 
 const test_buffer_size: usize = 5;
 const StringScanner = Scanner(StringReader, test_buffer_size);

@@ -41,8 +41,30 @@
         - TOML
         - YAML
     - Given a ZOMBIE file, produce another ZOMBIE file with all macros evaluated
-    - Format a given ZOMBIE file based on eiither the rules defined in a ZOMBIE-FMT file or a default set of huristics
+    - Format a given ZOMBIE file based on either the rules defined in a ZOMBIE-FMT file or a default set of heuristics
 - Create a C-ABI compatible library for reading and writing ZOMBIE files
+    - Parsing API Ideas:
+        - zomb_parser.next() // tell the parser to process the next token
+        - zomb_parser.state() // ask the parser what it's currently parsing
+        - zomb_parser.fastForwardTo(key) // move the parser to the next occurrence of "key"
+        = zomb_parser.rewindTo(key) // move the parser back to the previous occurrence of "key"
+        - How would this API be used?
+            - ref: https://stackoverflow.com/questions/17244488/reading-struct-in-python-from-created-struct-in-c
+
+            ```python
+            from ctypes import cdll
+            zomb_parser = cdll.LoadLibrary('libzomb.so')
+
+            def load(fd):
+                parser = zomb_parser.init(fd)
+                # root = parser.parse_all()
+                status = parser.next()
+                while status.state != zomb_parser.state.Eof:
+
+            ```
+
+        - Is having a parsing API even useful at all?
+
     - Maybe also create the bindings for popular languages:
         - Python
         - Rust
@@ -86,28 +108,8 @@ Basic Commands
 
 ## Other Tips and Tricks
 
-- How to type a unicde character into Sublime Text on Linux:
+- How to type a Unicode character into Sublime Text on Linux:
 
     `ctrl+shift+u` > HEX code > `Enter`
 
     EX: `ctrl+shift+u` > 2713 > `Enter` -> ✓
-
-## Parsing State Machine
-
-> The current state tells us what we have on the stack.
-
-Current State > Token > Next State
-
-.None > STRING > .Id
-.None > DOLLAR > .MacroIdPrefix
-.None > COMMENT > .None
-
-.Id > EQUAL > .Assigment
-
-.MacroIdPrefix > STRING > .MacroId
-
-.MacroId > EQUAL > .MacroDecl
-.MacroId > OPEN_PAREN > .MacroFuncId
-
-.MacroDecl > STRING > .MacroValue
-.MacroDecl > OPEN_CURLY > .ObjectBegin

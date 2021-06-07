@@ -107,7 +107,7 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //         Equals           >> 4
                     //         else             >> error
                     // --------------------------------------------
-                    //     2   String or Number >> 2
+                    //     2   String or Number >> -
                     //         CloseParen       >> 3
                     //         else             >> error
                     // --------------------------------------------
@@ -201,8 +201,8 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
 
                     // stage   expected tokens  >> next stage/state
                     // --------------------------------------------
-                    //     -   String or Number >> 0
-                    //         MultiLineString  >> 0
+                    //     -   String or Number >> -
+                    //         MultiLineString  >> -
                     //         Dollar           >> MacroUse
                     //         OpenCurly        >> Object
                     //         OpenSquare       >> Array
@@ -284,8 +284,8 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //         OpenSquare       >> Array
                     //         else             >> error
                     // --------------------------------------------
-                    // pop 1   String or Number >> 1
-                    //         MultiLineString  >> 1
+                    // pop 1   String or Number >> -
+                    //         MultiLineString  >> -
                     //         Dollar           >> MacroUse
                     //         OpenCurly        >> Object
                     //         OpenSquare       >> Array
@@ -300,7 +300,7 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                             else => return error.UnexpectedMacroUseParamsStage0Token,
                         },
                         1 => switch (token.token_type) {
-                            .String, .Number, .MultiLineString => self.state_stage = 1,
+                            .String, .Number, .MultiLineString => {},
                             .Dollar => try self.stackPush(stack_macro_use),
                             .OpenCurly => try self.stackPush(stack_object),
                             .OpenSquare => try self.stackPush(stack_array),
@@ -380,22 +380,27 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
 
 const testing = std.testing;
 
-const StringReader = @import("testing/string_reader.zig").StringReader;
+const StringReader = @import("string_reader.zig").StringReader;
 const StringParser = Parser(StringReader, 32);
 
 test "temp parse test" {
     const str =
-        \\$m1(one two) = {
+        \\$m1(one two) = { // macro with paramters
         \\    hello = $one
-        \\    goodbye = $two
+        \\    goodbye = [ 42 // the answer
+        \\        $two ]
         \\}
+        \\$hi = this // macro without parameters
+        \\// Did you notice you can have comments?
         \\cool = {
         \\    ports = [ 800 900 ]
-        \\    this = that
-        \\    "wh.at" = $m1( 0 $m2( a, b ) ).goodbye
+        \\    this = $hi
+        \\    "wh.at" = $m1( 0 $m1( a, b ) ).goodbye  // commas are optional, yay!
+        \\    // "thing" points to a multi-line string...cool I guess
         \\    oh_yea = { thing = \\cool = {
         \\                       \\    ports = [ 800 900 ]
-        \\                       \\    what = $m1( 0 $m2( a b ) ).goodbye
+        \\                       \\    this = $hi
+        \\                       \\    what = $m1( 0 $m1( a b ) ).goodbye
         \\                       \\    oh_yea = { thing = "nope" }
         \\                       \\}
         \\                       \\$m1(one two) = {

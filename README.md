@@ -1,42 +1,43 @@
-# Zombie
+# The ZOMB file format
 
-Welcome! This is the `Zombie` data-file format. It's like JSON but with macros (and some other relaxed syntax)!
+Welcome! This is the `.zomb` data-exchange file format. It's like JSON but with macros (and some other relaxed syntax)!
+
+> _Similar to how JSON is pronounced "j-son", ZOMB is pronounced "zom-b"._
 
 ## Basics
 
 Here's a basic example (without macros):
 
 ```
-"$schema" = vscode://schemas/color-theme
-name = "Zooce Dark"
-type = Dark
-colors = {
-    "editor.foreground" = #f2f2f2,
-    "editor.background" = #2b2b2b,
+$m1(one two) = { // macro with paramters
+    hello = $one
+    goodbye = $two
 }
-tokenColors = [
-    {
-        scope = "punctuation.definition.arguments",
-        settings = {
-            foreground = #f2f2f2,
-        },
-    },
-    {
-        scope = comment,
-        settings = {
-            foreground = #8a8a8a,
-            fontStyle = italic,
-        },
-    },
-]
-ports = [ 8000, 9000, 8001 ]
+$hi = this // macro without parameters
+// Did you notice you can have comments?
+cool = {
+    ports = [ 800 900 ]
+    this = $hi
+    "wh.at" = $m1( 0 $m1( a, b ) ).goodbye  // commas are optional, yay!
+    // "thing" points to a multi-line string...cool I guess
+    oh_yea = { thing = \\cool = {
+                       \\    ports = [ 800 900 ]
+                       \\    this = $hi
+                       \\    what = $m1( 0 $m1( a b ) ).goodbye
+                       \\    oh_yea = { thing = "nope" }
+                       \\}
+                       \\$m1(one two) = {
+                       \\    hello = $one
+                       \\    goodbye = $two
+                       \\}
+    }
+}
 ```
 
 A couple things before we see Macros in action.
 
 1. Strings only need to be quoted (with double quotes) if they include any of the file delimiters (e.g. ` `, `.`, `{`, etc.).
-2. "Top-level" key-value pair declarations are separated by newlines, not commas.
-3. Key-value pairs within an object or values within an array need to be separated by commas. You can also use a trailing comma -- this is nice because next time you want to add a key-value pair or a new value to an array, you don't need to add a comma after the value above it.
+2. You don't see any commas in this example, but you can use a single comma to separate entities, just like JSON requires.
 
 ## Macros
 
