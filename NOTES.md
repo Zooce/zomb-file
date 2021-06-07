@@ -1,8 +1,6 @@
 # TODOs
 
-- Should I alow any `value` in `macro-use-params`?
-- Executive decision = commas and/or newlines between entities is optional! Need to add this to the grammar now.
-- How do I add multi-line strings?
+- Translate to JSON....
 - Better test cases
     - kv-pair
         string = number

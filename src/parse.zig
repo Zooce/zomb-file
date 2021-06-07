@@ -67,9 +67,8 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                 _ = try self.tokenizer.tokenString(token, &token_string);
                 std.log.err(
                     \\
-                    \\State: {}
-                    \\Stage: {}
-                    \\Stack: 0x{X:0>32} (size = {})
+                    \\State: {} (stage = {})
+                    \\Stack: 0x{b:0>128} (size = {})
                     \\Type : {} (line = {})
                     \\Token: {s}
                     \\
@@ -93,12 +92,10 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //     -   Dollar           >> MacroDecl
                     //         String or Number >> KvPair
                     //         else             >> error
-                    .Decl => {
-                        switch (token.token_type) {
-                            .Dollar => self.state = State.MacroDecl,
-                            .String, .Number => self.state = State.KvPair,
-                            else => return error.UnexpectedDeclToken,
-                        }
+                    .Decl => switch (token.token_type) {
+                        .Dollar => self.state = State.MacroDecl,
+                        .String, .Number => self.state = State.KvPair,
+                        else => return error.UnexpectedDeclToken,
                     },
 
                     // stage   expected tokens  >> next stage/state
@@ -123,48 +120,36 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //         OpenCurly        >> Object
                     //         OpenSquare       >> Array
                     //         else             >> error
-                    .MacroDecl => {
-                        switch (self.state_stage) {
-                            0 => { // macro key
-                                switch (token.token_type) {
-                                    .String, .Number => self.state_stage = 1,
-                                    else => return error.UnexpectedMacroDeclStage0Token,
-                                }
+                    .MacroDecl => switch (self.state_stage) {
+                        0 => switch (token.token_type) { // macro key
+                            .String, .Number => self.state_stage = 1,
+                            else => return error.UnexpectedMacroDeclStage0Token,
+                        },
+                        1 => switch (token.token_type) { // parameters or equals
+                            .OpenParen => self.state_stage = 2,
+                            .Equals => self.state_stage = 4,
+                            else => return error.UnexpectedMacroDeclStage1Token,
+                        },
+                        2 => switch (token.token_type) { // parameters
+                            .String, .Number => {},
+                            .CloseParen => self.state_stage = 3,
+                            else => return error.UnexpectedMacroDeclStage2Token,
+                        },
+                        3 => switch (token.token_type) { // equals
+                            .Equals => self.state_stage = 4,
+                            else => return error.UnexpectedMacroDeclStage3Token,
+                        },
+                        4 => switch (token.token_type) { // value
+                            .String, .Number, .MultiLineString => {
+                                self.state = State.Decl;
+                                self.state_stage = 0;
                             },
-                            1 => { // parameters or equals
-                                switch (token.token_type) {
-                                    .OpenParen => self.state_stage = 2,
-                                    .Equals => self.state_stage = 4,
-                                    else => return error.UnexpectedMacroDeclStage1Token,
-                                }
-                            },
-                            2 => { // parameters
-                                switch (token.token_type) {
-                                    .String, .Number => {},
-                                    .CloseParen => self.state_stage = 3,
-                                    else => return error.UnexpectedMacroDeclStage2Token,
-                                }
-                            },
-                            3 => { // equals
-                                switch (token.token_type) {
-                                    .Equals => self.state_stage = 4,
-                                    else => return error.UnexpectedMacroDeclStage3Token,
-                                }
-                            },
-                            4 => { // value
-                                switch (token.token_type) {
-                                    .String, .Number, .MultiLineString => {
-                                        self.state = State.Decl;
-                                        self.state_stage = 0;
-                                    },
-                                    .Dollar => try self.stackPush(stack_macro_use),
-                                    .OpenCurly => try self.stackPush(stack_object),
-                                    .OpenSquare => try self.stackPush(stack_array),
-                                    else => return error.UnexpectedMacroDeclStage4Token,
-                                }
-                            },
-                            else => return error.UnexpectedMacroDeclStage,
-                        }
+                            .Dollar => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            else => return error.UnexpectedMacroDeclStage4Token,
+                        },
+                        else => return error.UnexpectedMacroDeclStage,
                     },
 
                     // stage   expected tokens  >> next stage/state
@@ -178,35 +163,29 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //         OpenCurly        >> Object
                     //         OpenSquare       >> Array
                     //         else             >> error
-                    .KvPair => {
-                        switch (self.state_stage) {
-                            0 => {
-                                switch (token.token_type) {
-                                    .Equals => self.state_stage = 1,
-                                    else => return error.UnexpectedKvPairStage0Token,
+                    .KvPair => switch (self.state_stage) {
+                        0 => switch (token.token_type) {
+                            .Equals => self.state_stage = 1,
+                            else => return error.UnexpectedKvPairStage0Token,
+                        },
+                        1 => switch (token.token_type) {
+                            .String, .Number, .MultiLineString => {
+                                self.state_stage = 0;
+                                if (self.stackPeek()) |stack_type| {
+                                    switch (stack_type) {
+                                        stack_object => self.state = State.Object,
+                                        else => return error.UnexpectedKvPairStackPeek,
+                                    }
+                                } else {
+                                    self.state = State.Decl;
                                 }
                             },
-                            1 => {
-                                switch (token.token_type) {
-                                    .String, .Number, .MultiLineString => {
-                                        self.state_stage = 0;
-                                        if (self.stackPeek()) |stack_type| {
-                                            switch (stack_type) {
-                                                stack_object => self.state = State.Object,
-                                                else => return error.UnexpectedKvPairStackPeek,
-                                            }
-                                        } else {
-                                            self.state = State.Decl;
-                                        }
-                                    },
-                                    .Dollar => try self.stackPush(stack_macro_use),
-                                    .OpenCurly => try self.stackPush(stack_object),
-                                    .OpenSquare => try self.stackPush(stack_array),
-                                    else => return error.UnexpectedKvPairStage1Token,
-                                }
-                            },
-                            else => return error.UnexpectedKvPairStage,
-                        }
+                            .Dollar => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            else => return error.UnexpectedKvPairStage1Token,
+                        },
+                        else => return error.UnexpectedKvPairStage,
                     },
 
                     // stage   expected tokens  >> next stage/state
@@ -214,12 +193,10 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //     -   String or Number >> KvPair
                     //         CloseCurly       >> stack or Decl
                     //         else             >> error
-                    .Object => {
-                        switch (token.token_type) {
-                            .String, .Number => self.state = State.KvPair,
-                            .CloseCurly => try self.stackPop(),
-                            else => return error.UnexpectedObjectToken,
-                        }
+                    .Object => switch (token.token_type) {
+                        .String, .Number => self.state = State.KvPair,
+                        .CloseCurly => try self.stackPop(),
+                        else => return error.UnexpectedObjectToken,
                     },
 
                     // stage   expected tokens  >> next stage/state
@@ -231,15 +208,13 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //         OpenSquare       >> Array
                     //         CloseSquare      >> stack or Decl
                     //         else             >> error
-                    .Array => {
-                        switch (token.token_type) {
-                            .String, .Number, .MultiLineString => {},
-                            .Dollar => try self.stackPush(stack_macro_use),
-                            .OpenCurly => try self.stackPush(stack_object),
-                            .OpenSquare => try self.stackPush(stack_array),
-                            .CloseSquare => try self.stackPop(),
-                            else => return error.UnexpectedArrayToken,
-                        }
+                    .Array => switch (token.token_type) {
+                        .String, .Number, .MultiLineString => {},
+                        .Dollar => try self.stackPush(stack_macro_use),
+                        .OpenCurly => try self.stackPush(stack_object),
+                        .OpenSquare => try self.stackPush(stack_array),
+                        .CloseSquare => try self.stackPop(),
+                        else => return error.UnexpectedArrayToken,
                     },
 
                     // stage   expected tokens  >> next stage/state
@@ -265,53 +240,39 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     // --------------------------------------------
                     //     5   CloseSquare      >> 1
                     //         else             >> error
-                    .MacroUse => {
-                        switch (self.state_stage) {
-                            0 => { // macro key
-                                switch (token.token_type) {
-                                    .String, .Number => self.state_stage = 1,
-                                    else => return error.UnexpectedMacroUseStage0Token,
-                                }
+                    .MacroUse => switch (self.state_stage) {
+                        0 => switch (token.token_type) { // macro key
+                            .String, .Number => self.state_stage = 1,
+                            else => return error.UnexpectedMacroUseStage0Token,
+                        },
+                        1 => switch (token.token_type) { // params or accessor
+                            .Dot => self.state_stage = 0,
+                            .OpenSquare => self.state_stage = 2,
+                            .OpenParen => try self.stackPush(stack_macro_use_params),
+                            else => {
+                                try self.stackPop();
+                                continue :parseloop;
                             },
-                            1 => { // params or accessor
-                                switch (token.token_type) {
-                                    .Dot => self.state_stage = 0,
-                                    .OpenSquare => self.state_stage = 2,
-                                    .OpenParen => try self.stackPush(stack_macro_use_params),
-                                    else => {
-                                        try self.stackPop();
-                                        continue :parseloop;
-                                    },
-                                }
-                            },
-                            2 => {
-                                switch (token.token_type) {
-                                    .Number => self.state_stage = 3,
-                                    .Range => self.state_stage = 4,
-                                    else => return error.UnexpectedMacroUseStage2Token,
-                                }
-                            },
-                            3 => {
-                                switch (token.token_type) {
-                                    .Range => self.state_stage = 4,
-                                    else => return error.UnexpectedMacroUseStage3Token,
-                                }
-                            },
-                            4 => {
-                                switch (token.token_type) {
-                                    .Number => self.state_stage = 5,
-                                    .CloseSquare => self.state_stage = 1,
-                                    else => return error.UnexpectedMacroUseStage4Token,
-                                }
-                            },
-                            5 => {
-                                switch (token.token_type) {
-                                    .CloseSquare => self.state_stage = 1,
-                                    else => return error.UnexpectedMacroUseStage5Token,
-                                }
-                            },
-                            else => return error.UnexpectedMacroUseStage,
-                        }
+                        },
+                        2 => switch (token.token_type) { // range start index or range token
+                            .Number => self.state_stage = 3,
+                            .Range => self.state_stage = 4,
+                            else => return error.UnexpectedMacroUseStage2Token,
+                        },
+                        3 => switch (token.token_type) { // range token
+                            .Range => self.state_stage = 4,
+                            else => return error.UnexpectedMacroUseStage3Token,
+                        },
+                        4 => switch (token.token_type) { // range end index or end of range accessor
+                            .Number => self.state_stage = 5,
+                            .CloseSquare => self.state_stage = 1,
+                            else => return error.UnexpectedMacroUseStage4Token,
+                        },
+                        5 => switch (token.token_type) { // end of range accessor
+                            .CloseSquare => self.state_stage = 1,
+                            else => return error.UnexpectedMacroUseStage5Token,
+                        },
+                        else => return error.UnexpectedMacroUseStage,
                     },
 
                     // stage   expected tokens  >> next stage/state
@@ -330,29 +291,23 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     //         OpenSquare       >> Array
                     //         CloseParen       >> stack or Decl
                     //         else             >> error
-                    .MacroUseParams => {
-                        switch (self.state_stage) {
-                            0 => {
-                                switch (token.token_type) {
-                                    .String, .Number, .MultiLineString => self.state_stage = 1,
-                                    .Dollar => try self.stackPush(stack_macro_use),
-                                    .OpenCurly => try self.stackPush(stack_object),
-                                    .OpenSquare => try self.stackPush(stack_array),
-                                    else => return error.UnexpectedMacroUseParamsStage0Token,
-                                }
-                            },
-                            1 => {
-                                switch (token.token_type) {
-                                    .String, .Number, .MultiLineString => self.state_stage = 1,
-                                    .Dollar => try self.stackPush(stack_macro_use),
-                                    .OpenCurly => try self.stackPush(stack_object),
-                                    .OpenSquare => try self.stackPush(stack_array),
-                                    .CloseParen => try self.stackPop(),
-                                    else => return error.UnexpectedMacroUseParamsStage1Token,
-                                }
-                            },
-                            else => return error.UnexpectedMacroUseParamsStage,
-                        }
+                    .MacroUseParams => switch (self.state_stage) {
+                        0 => switch (token.token_type) {
+                            .String, .Number, .MultiLineString => self.state_stage = 1,
+                            .Dollar => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            else => return error.UnexpectedMacroUseParamsStage0Token,
+                        },
+                        1 => switch (token.token_type) {
+                            .String, .Number, .MultiLineString => self.state_stage = 1,
+                            .Dollar => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            .CloseParen => try self.stackPop(),
+                            else => return error.UnexpectedMacroUseParamsStage1Token,
+                        },
+                        else => return error.UnexpectedMacroUseParamsStage,
                     },
                 }
 
