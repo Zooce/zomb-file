@@ -17,13 +17,15 @@ pub fn main() anyerror!void {
         const args = try std.process.argsAlloc(alloc);
         defer std.process.argsFree(alloc, args);
 
-        if (args.len != 2) {
-            std.log.err("Expected 1 argument, but found {}", .{args.len - 1});
-            return error.InvalidArgument;
+        var path: []const u8 = undefined;
+        if (args.len == 2) {
+            path = args[1];
+        } else {
+            path = "../test.zomb";
         }
 
-        const file = try std.fs.cwd().openFile(args[1], .{ .read = true });
-        std.log.info("Reading from {s}", .{args[1]});
+        const file = try std.fs.cwd().openFile(path, .{ .read = true });
+        std.log.info("Reading from {s}", .{path});
         break :fileblk file;
     };
 

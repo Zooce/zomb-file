@@ -1,5 +1,5 @@
 const std = @import("std");
-const Scanner = @import("scanner.zig").Scanner;
+const Scanner = @import("scan.zig").Scanner;
 
 /// These are the delimiters that will be used as tokens.
 const TokenDelimiter = enum(u8) {

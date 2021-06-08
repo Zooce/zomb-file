@@ -93,7 +93,7 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
             parseloop: while (token.token_type != TokenType.Eof) {
                 // ===--- for prototyping only ---===
                 _ = try self.tokenizer.tokenString(token, &token_string);
-                std.log.err(
+                std.log.info(
                     \\
                     \\State: {} (stage = {})
                     \\Stack: 0x{b:0>128} (size = {})

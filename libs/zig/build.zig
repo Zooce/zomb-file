@@ -9,14 +9,8 @@ pub fn build(b: *bld.Builder) void {
     zomb_lib.install();
 
     // build the tests
-    const test_step = b.step("tests", "Run ZOMB-Zig library tests");
-    var t = b.addTest("src/parse.zig");
-    t.setBuildMode(mode);
-    test_step.dependOn(&t.step);
-    t = b.addTest("src/token.zig");
-    t.setBuildMode(mode);
-    test_step.dependOn(&t.step);
-    t = b.addTest("src/scanner.zig");
+    const test_step = b.step("test", "Run ZOMB-Zig library tests");
+    var t = b.addTest("src/zomb.zig");
     t.setBuildMode(mode);
     test_step.dependOn(&t.step);
 
