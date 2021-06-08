@@ -1,17 +1,38 @@
-const std = @import("std");
+const bld = @import("std").build;
 
-pub fn build(b: *std.build.Builder) void {
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
+pub fn build(b: *bld.Builder) void {
     const mode = b.standardReleaseOptions();
 
-    const lib = b.addStaticLibrary("zomb", "src/zomb.zig");
-    lib.setBuildMode(mode);
-    lib.install();
+    // build the library
+    const zomb_lib = b.addStaticLibrary("zomb", "src/zomb.zig");
+    zomb_lib.setBuildMode(b.standardReleaseOptions());
+    zomb_lib.install();
 
-    var main_tests = b.addTest("src/main.zig");
-    main_tests.setBuildMode(mode);
+    // build the tests
+    const test_step = b.step("tests", "Run ZOMB-Zig library tests");
+    var t = b.addTest("src/parse.zig");
+    t.setBuildMode(mode);
+    test_step.dependOn(&t.step);
+    t = b.addTest("src/token.zig");
+    t.setBuildMode(mode);
+    test_step.dependOn(&t.step);
+    t = b.addTest("src/scanner.zig");
+    t.setBuildMode(mode);
+    test_step.dependOn(&t.step);
 
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    // build the example executable
+    const exe = b.addExecutable("zomb2json", "example/zomb2json.zig");
+    exe.setBuildMode(mode);
+    exe.addPackagePath("zomb", "src/zomb.zig");
+    exe.install();
+
+    const run_cmd = exe.run();
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    // Create a `run` step (so we can do `zig build run`)
+    const run_step = b.step("example", "Run the example app");
+    run_step.dependOn(&run_cmd.step);
 }

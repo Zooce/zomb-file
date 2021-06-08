@@ -8,6 +8,7 @@ const json = std.json;
 const buffer_size: usize = 4 * 1024; // 4k seems reasonable...
 const ZombFileParser = @import("zomb").Parser(std.fs.File, buffer_size);
 
+
 pub fn main() anyerror!void {
     var file = fileblk: {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -18,7 +19,7 @@ pub fn main() anyerror!void {
 
         if (args.len != 2) {
             std.log.err("Expected 1 argument, but found {}", .{args.len - 1});
-            return ZombieError.InvalidArgument;
+            return error.InvalidArgument;
         }
 
         const file = try std.fs.cwd().openFile(args[1], .{ .read = true });
@@ -28,6 +29,8 @@ pub fn main() anyerror!void {
 
     var zomb_parser = ZombFileParser.init(&file);
     defer zomb_parser.deinit();
+
+    try zomb_parser.parse();
 
     // TODO: const zomb_file = zomb_parser.parse();
     // TODO: convert `zomb_file` to a JSON file

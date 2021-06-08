@@ -4,27 +4,27 @@ const Tokenizer = @import("token.zig").Tokenizer;
 const TokenType = @import("token.zig").TokenType;
 const Token = @import("token.zig").Token;
 
-pub const ZombValueMap = std.StringArrayHashMap(ZombValue);
-pub const ZombValueArray = std.ArrayList(ZombValue);
+// pub const ZombValueMap = std.StringArrayHashMap(ZombValue);
+// pub const ZombValueArray = std.ArrayList(ZombValue);
 
-pub const ZombValue = union(enum) {
-    Object: ZombValueMap,
-    Array: ZombValueArray,
-    String: []const u8,
-};
+// pub const ZombValue = union(enum) {
+//     Object: ZombValueMap,
+//     Array: ZombValueArray,
+//     String: []const u8,
+// };
 
-pub const ZombMacro = struct {
-    parameters: ZombValueMap,
-    value: ZombValue,
-};
+// pub const ZombMacro = struct {
+//     parameters: ZombValueMap,
+//     value: ZombValue,
+// };
 
-pub const ZombMacroMap = std.StringArrayHashMap(ZombMacro);
+// pub const ZombMacroMap = std.StringArrayHashMap(ZombMacro);
 
-pub const ZombTree = struct {
-    arena: std.heap.ArenaAllocator,
-    macros: ZombMacroMap,
-    values: ZombValueMap,
-};
+// pub const ZombTree = struct {
+//     arena: std.heap.ArenaAllocator,
+//     macros: ZombMacroMap,
+//     values: ZombValueMap,
+// };
 
 pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
     return struct {
@@ -51,7 +51,7 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
             MacroUseParams,
         };
 
-        allocator: *Allocator,
+        // allocator: *Allocator,
 
         tokenizer: ParserTokenizer,
 
@@ -66,18 +66,14 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
         stack: u128 = 0,
         stack_size: u8 = 0,
 
-        value_stack: ZombValueArray,
-        macros: ZombMacroMap,
-        values: ZombValueMap,
+        // value_stack: ZombValueArray,
+        // macros: ZombMacroMap,
+        // values: ZombValueMap,
 
 
-        pub fn init(file_: *FileType_, alloc_: *Allocator) Self {
+        pub fn init(file_: *FileType_) Self {
             return Self{
-                .allocator = alloc_,
                 .tokenizer = ParserTokenizer.init(file_),
-                .value_stack = ZombValueArray.init(alloc_),
-                .macros = ZombMacroMap.init(alloc_),
-                .values = ZombValueMap.init(alloc_),
             };
         }
 
@@ -85,10 +81,7 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
             self.tokenizer.deinit();
         }
 
-        pub fn parse(self: *Self) !ZombTree {
-            var arena = std.heap.ArenaAllocator.init(self.allocator);
-            errdefer arena.deinit();
-
+        pub fn parse(self: *Self) !void {
             var token = try self.tokenizer.next();
 
             // ===--- for prototyping only ---===
@@ -126,242 +119,236 @@ pub fn Parser(comptime FileType_: type, buffer_size_: anytype) type {
                     continue :parseloop;
                 }
 
-                try self.transition(token);
-
-                token = try self.tokenizer.next();
-            }
-
-            return ZombTree{
-                .arena = arena,
-                .macros = self.macros,
-                .values = self.values,
-            }
-        }
-
-        fn transition(self: *Self, token_: Token) !void {
-            switch (self.state) {
-                // stage   expected tokens  >> next stage/state
-                // --------------------------------------------
-                //     -   MacroKey         >> MacroDecl
-                //         String or Number >> KvPair
-                //         else             >> error
-                .Decl => switch (token_.token_type) {
-                    .MacroKey => {
-                        // const result = self.macros.getOrPut(token_.str());
-                        // if (result.found_existing) {
-                        //     return error.DuplicateMacroDecl;
-                        // }
-                        self.state = State.MacroDecl
-                    },
-                    .String, .Number => self.state = State.KvPair,
-                    else => return error.UnexpectedDeclToken,
-                },
-
-                // stage   expected tokens  >> next stage/state
-                // --------------------------------------------
-                //     0   OpenParen        >> 1
-                //         Equals           >> 3
-                //         else             >> error
-                // --------------------------------------------
-                //     1   String or Number >> -
-                //         CloseParen       >> 2
-                //         else             >> error
-                // --------------------------------------------
-                //     2   Equals           >> 3
-                //         else             >> error
-                // --------------------------------------------
-                //     3   String or Number >> Decl
-                //         MultiLineString  >> Decl
-                //         MacroKey         >> MacroUse
-                //         OpenCurly        >> Object
-                //         OpenSquare       >> Array
-                //         else             >> error
-                .MacroDecl => switch (self.state_stage) {
-                    0 => switch (token_.token_type) { // parameters or equals
-                        .OpenParen => self.state_stage = 1,
-                        .Equals => self.state_stage = 3,
-                        else => return error.UnexpectedMacroDeclStage0Token,
-                    },
-                    1 => switch (token_.token_type) { // parameters
-                        .String, .Number => {},
-                        .CloseParen => self.state_stage = 2,
-                        else => return error.UnexpectedMacroDeclStage1Token,
-                    },
-                    2 => switch (token_.token_type) { // equals
-                        .Equals => self.state_stage = 3,
-                        else => return error.UnexpectedMacroDeclStage2Token,
-                    },
-                    3 => switch (token_.token_type) { // value
-                        .String, .Number, .MultiLineString => {
-                            self.state = State.Decl;
-                            self.state_stage = 0;
+                switch (self.state) {
+                    // stage   expected tokens  >> next stage/state
+                    // --------------------------------------------
+                    //     -   MacroKey         >> MacroDecl
+                    //         String or Number >> KvPair
+                    //         else             >> error
+                    .Decl => switch (token.token_type) {
+                        .MacroKey => {
+                            // const result = self.macros.getOrPut(token.str());
+                            // if (result.found_existing) {
+                            //     return error.DuplicateMacroDecl;
+                            // }
+                            self.state = State.MacroDecl;
                         },
-                        .MacroKey => try self.stackPush(stack_macro_use),
-                        .OpenCurly => try self.stackPush(stack_object),
-                        .OpenSquare => try self.stackPush(stack_array),
-                        else => return error.UnexpectedMacroDeclStage3Token,
+                        .String, .Number => self.state = State.KvPair,
+                        else => return error.UnexpectedDeclToken,
                     },
-                    else => return error.UnexpectedMacroDeclStage,
-                },
 
-                // stage   expected tokens  >> next stage/state
-                // --------------------------------------------------
-                //     0   Equals           >> 1
-                //         else             >> error
-                // --------------------------------------------------
-                //     1   String or Number >> Object (stack) or Decl
-                //         MultiLineString  >> Object (stack) or Decl
-                //         MacroKey         >> MacroUse
-                //         OpenCurly        >> Object
-                //         OpenSquare       >> Array
-                //         else             >> error
-                .KvPair => switch (self.state_stage) {
-                    0 => switch (token_.token_type) {
-                        .Equals => self.state_stage = 1,
-                        else => return error.UnexpectedKvPairStage0Token,
-                    },
-                    1 => switch (token_.token_type) {
-                        .String, .Number, .MultiLineString => {
-                            self.state_stage = 0;
-                            if (self.stackPeek()) |stack_type| {
-                                switch (stack_type) {
-                                    stack_object => self.state = State.Object,
-                                    else => return error.UnexpectedKvPairStackPeek,
-                                }
-                            } else {
+                    // stage   expected tokens  >> next stage/state
+                    // --------------------------------------------
+                    //     0   OpenParen        >> 1
+                    //         Equals           >> 3
+                    //         else             >> error
+                    // --------------------------------------------
+                    //     1   String or Number >> -
+                    //         CloseParen       >> 2
+                    //         else             >> error
+                    // --------------------------------------------
+                    //     2   Equals           >> 3
+                    //         else             >> error
+                    // --------------------------------------------
+                    //     3   String or Number >> Decl
+                    //         MultiLineString  >> Decl
+                    //         MacroKey         >> MacroUse
+                    //         OpenCurly        >> Object
+                    //         OpenSquare       >> Array
+                    //         else             >> error
+                    .MacroDecl => switch (self.state_stage) {
+                        0 => switch (token.token_type) { // parameters or equals
+                            .OpenParen => self.state_stage = 1,
+                            .Equals => self.state_stage = 3,
+                            else => return error.UnexpectedMacroDeclStage0Token,
+                        },
+                        1 => switch (token.token_type) { // parameters
+                            .String, .Number => {},
+                            .CloseParen => self.state_stage = 2,
+                            else => return error.UnexpectedMacroDeclStage1Token,
+                        },
+                        2 => switch (token.token_type) { // equals
+                            .Equals => self.state_stage = 3,
+                            else => return error.UnexpectedMacroDeclStage2Token,
+                        },
+                        3 => switch (token.token_type) { // value
+                            .String, .Number, .MultiLineString => {
                                 self.state = State.Decl;
-                            }
+                                self.state_stage = 0;
+                            },
+                            .MacroKey => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            else => return error.UnexpectedMacroDeclStage3Token,
                         },
-                        .MacroKey => try self.stackPush(stack_macro_use),
-                        .OpenCurly => try self.stackPush(stack_object),
-                        .OpenSquare => try self.stackPush(stack_array),
-                        else => return error.UnexpectedKvPairStage1Token,
+                        else => return error.UnexpectedMacroDeclStage,
                     },
-                    else => return error.UnexpectedKvPairStage,
-                },
 
-                // stage   expected tokens  >> next stage/state
-                // --------------------------------------------
-                //     -   String or Number >> KvPair
-                //         CloseCurly       >> stack or Decl
-                //         else             >> error
-                .Object => switch (token_.token_type) {
-                    .String, .Number => self.state = State.KvPair,
-                    .CloseCurly => try self.stackPop(),
-                    else => return error.UnexpectedObjectToken,
-                },
-
-                // stage   expected tokens  >> next stage/state
-                // --------------------------------------------
-                //     -   String or Number >> -
-                //         MultiLineString  >> -
-                //         MacroKey         >> MacroUse
-                //         OpenCurly        >> Object
-                //         OpenSquare       >> Array
-                //         CloseSquare      >> stack or Decl
-                //         else             >> error
-                .Array => switch (token_.token_type) {
-                    .String, .Number, .MultiLineString => {},
-                    .MacroKey => try self.stackPush(stack_macro_use),
-                    .OpenCurly => try self.stackPush(stack_object),
-                    .OpenSquare => try self.stackPush(stack_array),
-                    .CloseSquare => try self.stackPop(),
-                    else => return error.UnexpectedArrayToken,
-                },
-
-                // stage   expected tokens  >> next stage/state
-                // --------------------------------------------
-                //     0   String or Number >> 1
-                //         else             >> error
-                // --------------------------------------------
-                // >>> 1   Dot              >> 0
-                //         OpenSquare       >> 2
-                //         OpenParen        >> MacroUseParams
-                //         else             >> stack or Decl (keep token)
-                // --------------------------------------------
-                //     2   Number           >> 3
-                //         Range            >> 4
-                //         else             >> error
-                // --------------------------------------------
-                //     3   Range            >> 4
-                //         else             >> error
-                // --------------------------------------------
-                //     4   Number           >> 5
-                //         CloseSquare      >> 1
-                //         else             >> error
-                // --------------------------------------------
-                //     5   CloseSquare      >> 1
-                //         else             >> error
-                .MacroUse => switch (self.state_stage) {
-                    0 => switch (token_.token_type) { // macro key
-                        .String, .Number => self.state_stage = 1,
-                        else => return error.UnexpectedMacroUseStage0Token,
-                    },
-                    1 => switch (token_.token_type) { // params or accessor
-                        .Dot => self.state_stage = 0,
-                        .OpenSquare => self.state_stage = 2,
-                        .OpenParen => try self.stackPush(stack_macro_use_params),
-                        else => {
-                            try self.stackPop();
-                            continue :parseloop;
+                    // stage   expected tokens  >> next stage/state
+                    // --------------------------------------------------
+                    //     0   Equals           >> 1
+                    //         else             >> error
+                    // --------------------------------------------------
+                    //     1   String or Number >> Object (stack) or Decl
+                    //         MultiLineString  >> Object (stack) or Decl
+                    //         MacroKey         >> MacroUse
+                    //         OpenCurly        >> Object
+                    //         OpenSquare       >> Array
+                    //         else             >> error
+                    .KvPair => switch (self.state_stage) {
+                        0 => switch (token.token_type) {
+                            .Equals => self.state_stage = 1,
+                            else => return error.UnexpectedKvPairStage0Token,
                         },
+                        1 => switch (token.token_type) {
+                            .String, .Number, .MultiLineString => {
+                                self.state_stage = 0;
+                                if (self.stackPeek()) |stack_type| {
+                                    switch (stack_type) {
+                                        stack_object => self.state = State.Object,
+                                        else => return error.UnexpectedKvPairStackPeek,
+                                    }
+                                } else {
+                                    self.state = State.Decl;
+                                }
+                            },
+                            .MacroKey => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            else => return error.UnexpectedKvPairStage1Token,
+                        },
+                        else => return error.UnexpectedKvPairStage,
                     },
-                    2 => switch (token_.token_type) { // range start index or range token
-                        .Number => self.state_stage = 3,
-                        .Range => self.state_stage = 4,
-                        else => return error.UnexpectedMacroUseStage2Token,
-                    },
-                    3 => switch (token_.token_type) { // range token
-                        .Range => self.state_stage = 4,
-                        else => return error.UnexpectedMacroUseStage3Token,
-                    },
-                    4 => switch (token_.token_type) { // range end index or end of range accessor
-                        .Number => self.state_stage = 5,
-                        .CloseSquare => self.state_stage = 1,
-                        else => return error.UnexpectedMacroUseStage4Token,
-                    },
-                    5 => switch (token_.token_type) { // end of range accessor
-                        .CloseSquare => self.state_stage = 1,
-                        else => return error.UnexpectedMacroUseStage5Token,
-                    },
-                    else => return error.UnexpectedMacroUseStage,
-                },
 
-                // stage   expected tokens  >> next stage/state
-                // --------------------------------------------
-                //     0   String or Number >> 1
-                //         MultiLineString  >> 1
-                //         MacroKey         >> MacroUse
-                //         OpenCurly        >> Object
-                //         OpenSquare       >> Array
-                //         else             >> error
-                // --------------------------------------------
-                // pop 1   String or Number >> -
-                //         MultiLineString  >> -
-                //         MacroKey         >> MacroUse
-                //         OpenCurly        >> Object
-                //         OpenSquare       >> Array
-                //         CloseParen       >> stack or Decl
-                //         else             >> error
-                .MacroUseParams => switch (self.state_stage) {
-                    0 => switch (token_.token_type) {
-                        .String, .Number, .MultiLineString => self.state_stage = 1,
-                        .MacroKey => try self.stackPush(stack_macro_use),
-                        .OpenCurly => try self.stackPush(stack_object),
-                        .OpenSquare => try self.stackPush(stack_array),
-                        else => return error.UnexpectedMacroUseParamsStage0Token,
+                    // stage   expected tokens  >> next stage/state
+                    // --------------------------------------------
+                    //     -   String or Number >> KvPair
+                    //         CloseCurly       >> stack or Decl
+                    //         else             >> error
+                    .Object => switch (token.token_type) {
+                        .String, .Number => self.state = State.KvPair,
+                        .CloseCurly => try self.stackPop(),
+                        else => return error.UnexpectedObjectToken,
                     },
-                    1 => switch (token_.token_type) {
+
+                    // stage   expected tokens  >> next stage/state
+                    // --------------------------------------------
+                    //     -   String or Number >> -
+                    //         MultiLineString  >> -
+                    //         MacroKey         >> MacroUse
+                    //         OpenCurly        >> Object
+                    //         OpenSquare       >> Array
+                    //         CloseSquare      >> stack or Decl
+                    //         else             >> error
+                    .Array => switch (token.token_type) {
                         .String, .Number, .MultiLineString => {},
                         .MacroKey => try self.stackPush(stack_macro_use),
                         .OpenCurly => try self.stackPush(stack_object),
                         .OpenSquare => try self.stackPush(stack_array),
-                        .CloseParen => try self.stackPop(),
-                        else => return error.UnexpectedMacroUseParamsStage1Token,
+                        .CloseSquare => try self.stackPop(),
+                        else => return error.UnexpectedArrayToken,
                     },
-                    else => return error.UnexpectedMacroUseParamsStage,
-                },
+
+                    // stage   expected tokens  >> next stage/state
+                    // --------------------------------------------
+                    //     0   String or Number >> 1
+                    //         else             >> error
+                    // --------------------------------------------
+                    // >>> 1   Dot              >> 0
+                    //         OpenSquare       >> 2
+                    //         OpenParen        >> MacroUseParams
+                    //         else             >> stack or Decl (keep token)
+                    // --------------------------------------------
+                    //     2   Number           >> 3
+                    //         Range            >> 4
+                    //         else             >> error
+                    // --------------------------------------------
+                    //     3   Range            >> 4
+                    //         else             >> error
+                    // --------------------------------------------
+                    //     4   Number           >> 5
+                    //         CloseSquare      >> 1
+                    //         else             >> error
+                    // --------------------------------------------
+                    //     5   CloseSquare      >> 1
+                    //         else             >> error
+                    .MacroUse => switch (self.state_stage) {
+                        0 => switch (token.token_type) { // macro key
+                            .String, .Number => self.state_stage = 1,
+                            else => return error.UnexpectedMacroUseStage0Token,
+                        },
+                        1 => switch (token.token_type) { // params or accessor
+                            .Dot => self.state_stage = 0,
+                            .OpenSquare => self.state_stage = 2,
+                            .OpenParen => try self.stackPush(stack_macro_use_params),
+                            else => {
+                                try self.stackPop();
+                                continue :parseloop;
+                            },
+                        },
+                        2 => switch (token.token_type) { // range start index or range token
+                            .Number => self.state_stage = 3,
+                            .Range => self.state_stage = 4,
+                            else => return error.UnexpectedMacroUseStage2Token,
+                        },
+                        3 => switch (token.token_type) { // range token
+                            .Range => self.state_stage = 4,
+                            else => return error.UnexpectedMacroUseStage3Token,
+                        },
+                        4 => switch (token.token_type) { // range end index or end of range accessor
+                            .Number => self.state_stage = 5,
+                            .CloseSquare => self.state_stage = 1,
+                            else => return error.UnexpectedMacroUseStage4Token,
+                        },
+                        5 => switch (token.token_type) { // end of range accessor
+                            .CloseSquare => self.state_stage = 1,
+                            else => return error.UnexpectedMacroUseStage5Token,
+                        },
+                        else => return error.UnexpectedMacroUseStage,
+                    },
+
+                    // stage   expected tokens  >> next stage/state
+                    // --------------------------------------------
+                    //     0   String or Number >> 1
+                    //         MultiLineString  >> 1
+                    //         MacroKey         >> MacroUse
+                    //         OpenCurly        >> Object
+                    //         OpenSquare       >> Array
+                    //         else             >> error
+                    // --------------------------------------------
+                    // pop 1   String or Number >> -
+                    //         MultiLineString  >> -
+                    //         MacroKey         >> MacroUse
+                    //         OpenCurly        >> Object
+                    //         OpenSquare       >> Array
+                    //         CloseParen       >> stack or Decl
+                    //         else             >> error
+                    .MacroUseParams => switch (self.state_stage) {
+                        0 => switch (token.token_type) {
+                            .String, .Number, .MultiLineString => self.state_stage = 1,
+                            .MacroKey => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            else => return error.UnexpectedMacroUseParamsStage0Token,
+                        },
+                        1 => switch (token.token_type) {
+                            .String, .Number, .MultiLineString => {},
+                            .MacroKey => try self.stackPush(stack_macro_use),
+                            .OpenCurly => try self.stackPush(stack_object),
+                            .OpenSquare => try self.stackPush(stack_array),
+                            .CloseParen => try self.stackPop(),
+                            else => return error.UnexpectedMacroUseParamsStage1Token,
+                        },
+                        else => return error.UnexpectedMacroUseParamsStage,
+                    },
+                }
+
+                token = try self.tokenizer.next();
             }
+        }
+
+        fn transition(self: *Self, token_: Token) !void {
+
         }
 
         fn stackPush(self: *Self, stack_type: u2) !void {
@@ -436,39 +423,39 @@ const testing = std.testing;
 const StringReader = @import("string_reader.zig").StringReader;
 const StringParser = Parser(StringReader, 32);
 
-test "temp parse test" {
-    const str =
-        \\$m1(one two) = { // macro with paramters
-        \\    hello = $one
-        \\    goodbye = [ 42 // the answer
-        \\        $two ]
-        \\}
-        \\$"hi.dude" = this // macro without parameters
-        \\// Did you notice you can have comments?
-        \\cool = {
-        \\    ports = [ 800 900 ]
-        \\    this = $"hi.dude"
-        \\    "wh.at" = $m1( 0 $m1( a, b ) ).goodbye  // commas are optional, yay!
-        \\    // "thing" points to a multi-line string...cool I guess
-        \\    oh_yea = { thing = \\cool = {
-        \\                       \\    ports = [ 800 900 ]
-        \\                       \\    this = $"hi.dude"
-        \\                       \\    what = $m1( 0 $m1( a b ) ).goodbye
-        \\                       \\    oh_yea = { thing = "nope" }
-        \\                       \\}
-        \\                       \\$hi = this // hi there!
-        \\                       \\$m1(one two) = {
-        \\                       \\    hello = $one
-        \\                       \\    goodbye = $two
-        \\                       \\}
-        \\    }
-        \\}
-    ;
-    var string_reader = StringReader{ .str = str };
-    var parser = StringParser.init(&string_reader);
-    defer parser.deinit();
-    try parser.parse();
-}
+// test "temp parse test" {
+//     const str =
+//         \\$m1(one two) = { // macro with paramters
+//         \\    hello = $one
+//         \\    goodbye = [ 42 // the answer
+//         \\        $two ]
+//         \\}
+//         \\$"hi.dude" = this // macro without parameters
+//         \\// Did you notice you can have comments?
+//         \\cool = {
+//         \\    ports = [ 800 900 ]
+//         \\    this = $"hi.dude"
+//         \\    "wh.at" = $m1( 0 $m1( a, b ) ).goodbye  // commas are optional, yay!
+//         \\    // "thing" points to a multi-line string...cool I guess
+//         \\    oh_yea = { thing = \\cool = {
+//         \\                       \\    ports = [ 800 900 ]
+//         \\                       \\    this = $"hi.dude"
+//         \\                       \\    what = $m1( 0 $m1( a b ) ).goodbye
+//         \\                       \\    oh_yea = { thing = "nope" }
+//         \\                       \\}
+//         \\                       \\$hi = this // hi there!
+//         \\                       \\$m1(one two) = {
+//         \\                       \\    hello = $one
+//         \\                       \\    goodbye = $two
+//         \\                       \\}
+//         \\    }
+//         \\}
+//     ;
+//     var string_reader = StringReader{ .str = str };
+//     var parser = StringParser.init(&string_reader);
+//     defer parser.deinit();
+//     // try parser.parse();
+// }
 
 test "stack logic" {
     var stack: u128 = 0;

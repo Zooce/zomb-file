@@ -35,17 +35,17 @@ $" = {\""(" = ") = {
 name = "Zooce Dark"
 type = Dark
 colors = {
-    editor.foreground = $colors.white, // single comma between values is optional
-    editor.background = $colors.black,
+    "editor.foreground" = $colors.white, // single comma between values is optional
+    "editor.background" = $colors.black,
 }
 tokenColors = [
     {
-        scope = punctuation.definition.arguments
+        scope = "punctuation.definition.arguments"
         settings = {
             foreground = $colors.white
         }
     }
-    $scope_def(punctuation.definition.type, $foreground($colors.red))
+    $scope_def("punctuation.definition.type" $foreground($colors.red))
     {
         scope = string
         settings = $foreground(#00ff00)
@@ -59,3 +59,29 @@ tokenColors = [
 multi-line-string = \\hello my friends
                     \\ what's up with this crazy
                     \\file format?"
+
+$m1(one two) = { // macro with paramters
+    hello = $one
+    goodbye = [ 42 // the answer
+        $two ]
+}
+$"hi.dude" = this // macro without parameters
+// Did you notice you can have comments?
+cool = {
+    ports = [ 800 900 ]
+    this = $"hi.dude"
+    "wh.at" = $m1( 0 $m1( a, b ) ).goodbye  // commas are optional, yay!
+    // "thing" points to a multi-line string...cool I guess
+    oh_yea = { thing = \\cool = {
+                       \\    ports = [ 800 900 ]
+                       \\    this = $"hi.dude"
+                       \\    what = $m1( 0 $m1( a b ) ).goodbye
+                       \\    oh_yea = { thing = "nope" }
+                       \\}
+                       \\$hi = this // hi there!
+                       \\$m1(one two) = {
+                       \\    hello = $one
+                       \\    goodbye = $two
+                       \\}
+    }
+}
