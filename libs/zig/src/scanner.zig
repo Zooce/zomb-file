@@ -76,8 +76,8 @@ pub fn Scanner(comptime FileType_: type, max_buffer_size_: anytype) type {
             return byte;
         }
 
-        /// Returns the byte at the buffer cursor, or `null` if the buffer cursor equals the buffer
-        /// size.
+        /// Returns the byte at the buffer cursor, or `null` if there aren't any more bytes to read
+        /// or when we encounter an error while reading.
         pub fn peek(self: *Self) ?u8 {
             if (!self.ensureBufferHasBytes()) {
                 return null;
@@ -85,8 +85,30 @@ pub fn Scanner(comptime FileType_: type, max_buffer_size_: anytype) type {
             return self.buffer[self.buffer_cursor];
         }
 
+        /// Returns the byte after the buffer cursor, or `null` if there aren't any more bytes to
+        /// read or when we encounter an error while reading.
         pub fn peekNext(self: *Self) ?u8 {
-            if (!self.ensureBufferHasBytes() or self.buffer_cursor + 1 == self.buffer_size) {
+            if (self.buffer_cursor + 1 == self.buffer_size) {
+                // this is a special case where we need to see one byte past the end of the buffer
+                // but we don't want to mess anything up, so we reset back to our original position
+                // after this "extended" read
+                const orig_pos = self.file.getPos() catch |err| {
+                    std.log.err("Unable to get file position: {}", .{err});
+                    return null;
+                };
+                const byte = self.reader.readByte() catch |err| {
+                    if (err != error.EndOfStream) {
+                        std.log.err("Unable to read byte: {}", .{err});
+                    }
+                    return null;
+                };
+                self.file.seekTo(orig_pos) catch |err| {
+                    std.log.err("Unable to seek to file's original position: {}", .{err});
+                    return null;
+                };
+                return byte;
+            }
+            if (!self.ensureBufferHasBytes()) {
                 return null;
             }
             return self.buffer[self.buffer_cursor + 1];
@@ -175,6 +197,8 @@ test "scanner" {
     try testing.expectEqual(@as(u8, 'e'), scanner.advance().?);
     try testing.expectEqual(@as(u8, 'l'), scanner.advance().?);
     try testing.expectEqual(@as(u8, 'l'), scanner.advance().?);
+    try testing.expectEqual(@as(u8, 'o'), scanner.peek().?);
+    try testing.expectEqual(@as(u8, ','), scanner.peekNext().?);
     try testing.expectEqual(@as(u8, 'o'), scanner.advance().?);
     try testing.expectEqual(@as(usize, 1), scanner.test_data.read_count);
     try testing.expectEqual(@as(usize, 1), scanner.current_line);

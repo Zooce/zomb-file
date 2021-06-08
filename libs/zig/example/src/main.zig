@@ -1,3 +1,7 @@
+//! zomb2json
+//!
+//! This program takes a .zomb file and converts it to a .json file.
+
 const std = @import("std");
 const json = std.json;
 
@@ -25,6 +29,6 @@ pub fn main() anyerror!void {
     var zomb_parser = ZombFileParser.init(&file);
     defer zomb_parser.deinit();
 
-    // TODO: use zomb_parser to convert the .zomb file to a .json file
-
+    // TODO: const zomb_file = zomb_parser.parse();
+    // TODO: convert `zomb_file` to a JSON file
 }

@@ -11,9 +11,10 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    const exe = b.addExecutable("lib", "src/main.zig");
+    const exe = b.addExecutable("zomb2json", "src/main.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
+    exe.addPackagePath("zomb", "../src/zomb.zig");
     exe.install();
 
     const run_cmd = exe.run();

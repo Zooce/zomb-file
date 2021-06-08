@@ -3,7 +3,6 @@ const Scanner = @import("scanner.zig").Scanner;
 
 /// These are the delimiters that will be used as tokens.
 const TokenDelimiter = enum(u8) {
-    Dollar = '$', // 0x24  36
     OpenParen = '(', // 0x28  40
     CloseParen = ')', // 0x29  41
     Comma = ',', // 0x2C  44
@@ -22,6 +21,7 @@ const NonTokenDelimiter = enum(u8) {
     CarriageReturn = '\r', // 0x0D  13
     Space = ' ', // 0x20  32
     Quote = '"', // 0x22  24
+    Dollar = '$', // 0x24  36
     ReverseSolidus = '\\', // 0x5C  92
 };
 
@@ -62,6 +62,7 @@ const SpecialToken = enum(u8) {
     String,
     Number,
     MultiLineString,
+    MacroKey,
 };
 
 pub const TokenType = @Type(out: {
@@ -131,6 +132,7 @@ pub fn Tokenizer(comptime FileType_: type, buffer_size_: anytype) type {
                 // delimiters with special handling
                 .Quote => try self.quotedString(),
                 .ReverseSolidus => try self.multiLineString(),
+                .Dollar => try self.macroKey(),
 
                 // the byte is not at delimiter, so handle it accordingly
                 .None => {
@@ -212,6 +214,28 @@ pub fn Tokenizer(comptime FileType_: type, buffer_size_: anytype) type {
             }
             // if we're here, that's an error
             return error.InvalidQuotedString;
+        }
+
+        fn macroKey(self: *Self) !void {
+            if (self.consume().? != '$') return error.InvalidMacroKey;
+
+            switch (self.scanner.peek() orelse 0) {
+                '\"' => {
+                    try self.quotedString();
+                    if (self.token.size == 2) {
+                        return error.InvalidQuotedMacroKey;
+                    }
+                },
+                else => {
+                    try self.bareString();
+                    if (self.token.size == 0) {
+                        return error.InvalidBareMacroKey;
+                    }
+                },
+            }
+
+            // overwrite the token type
+            self.token.token_type = TokenType.MacroKey;
         }
 
         /// Parses a multi-line string, based on the following rule:
@@ -595,8 +619,7 @@ test "simple macro declaration" {
         \\$name = "Zooce Dark"
     ;
     const expected_tokens = [_]ExpectedToken{
-        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        ExpectedToken{ .str = "name", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "$name", .line = 1, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "\"Zooce Dark\"", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
@@ -611,8 +634,7 @@ test "macro object declaration" {
         \\}
     ;
     const expected_tokens = [_]ExpectedToken{
-        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        ExpectedToken{ .str = "black_forground", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "$black_forground", .line = 1, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
         ExpectedToken{ .str = "foreground", .line = 2, .token_type = TokenType.String },
@@ -633,8 +655,7 @@ test "macro array declaration" {
         \\$ports = [ 8000 8001 8002 ]
     ;
     const expected_tokens = [_]ExpectedToken{
-        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        ExpectedToken{ .str = "ports", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "$ports", .line = 1, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "[", .line = 1, .token_type = TokenType.OpenSquare },
         ExpectedToken{ .str = "8000", .line = 1, .token_type = TokenType.Number },
@@ -654,8 +675,7 @@ test "macro with parameters declaration" {
         \\}
     ;
     const expected_tokens = [_]ExpectedToken{
-        ExpectedToken{ .str = "$", .line = 1, .token_type = TokenType.Dollar },
-        ExpectedToken{ .str = "scope_def", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "$scope_def", .line = 1, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "(", .line = 1, .token_type = TokenType.OpenParen },
         ExpectedToken{ .str = "scope", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = "settings", .line = 1, .token_type = TokenType.String },
@@ -664,12 +684,10 @@ test "macro with parameters declaration" {
         ExpectedToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
         ExpectedToken{ .str = "scope", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "$", .line = 2, .token_type = TokenType.Dollar },
-        ExpectedToken{ .str = "scope", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "$scope", .line = 2, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "settings", .line = 3, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "$", .line = 3, .token_type = TokenType.Dollar },
-        ExpectedToken{ .str = "settings", .line = 3, .token_type = TokenType.String },
+        ExpectedToken{ .str = "$settings", .line = 3, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "}", .line = 4, .token_type = TokenType.CloseCurly },
         ExpectedToken{ .str = "", .line = 4, .token_type = TokenType.Eof },
     };

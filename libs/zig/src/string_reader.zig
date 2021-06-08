@@ -5,7 +5,7 @@ pub const StringReader = struct {
     str: []const u8,
     cursor: u64 = 0,
 
-    const Error = error{SeekError};
+    const Error = error{SeekError, EndOfStream};
     const Self = @This();
     const Reader = std.io.Reader(*Self, Error, read);
 
@@ -17,6 +17,14 @@ pub const StringReader = struct {
         std.mem.copy(u8, dest, self.str[self.cursor .. self.cursor + size]);
         self.cursor += size;
         return size;
+    }
+
+    pub fn readByte(self: *Self) Error!u8 {
+        if (self.cursor >= self.str.len) {
+            return Error.EndOfStream;
+        }
+        self.cursor += 1;
+        return self.str[self.cursor];
     }
 
     pub fn getPos(self: *Self) Error!u64 {

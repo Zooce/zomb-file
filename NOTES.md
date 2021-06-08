@@ -47,10 +47,9 @@
         - zomb_parser.next() // tell the parser to process the next token
         - zomb_parser.state() // ask the parser what it's currently parsing
         - zomb_parser.fastForwardTo(key) // move the parser to the next occurrence of "key"
-        = zomb_parser.rewindTo(key) // move the parser back to the previous occurrence of "key"
+        - zomb_parser.rewindTo(key) // move the parser back to the previous occurrence of "key"
         - How would this API be used?
             - ref: https://stackoverflow.com/questions/17244488/reading-struct-in-python-from-created-struct-in-c
-
             ```python
             from ctypes import cdll
             zomb_parser = cdll.LoadLibrary('libzomb.so')
@@ -62,7 +61,33 @@
                 while status.state != zomb_parser.state.Eof:
 
             ```
+        - Can we do this with a streaming API? Maybe the calling code passes the `ZombTree` structure to the parser each time it wants more data, and the parser gradually fills out the `ZombTree` as it parses more tokens?
+            ```python
+            import ctypes
+            zomb_parser = cdll.LoadLibrary('libzomb.so')
 
+            # ... other structures/unions that must be defined
+
+            class ZombTree(ctypes.Structure):
+                _fields_ = [
+                    ("root", ZombTreeNode),
+                    # ... other fields on the ZombTree
+                ]
+
+                def to_dict(self):
+                    d = {}
+                    # ... start from "root" and fill out the dictionary
+                    return d
+
+            def parse(fd):
+                tree = ZombTree()
+                parser = zomb_parser.ZombFileParser.init(fd)
+                while not parser.finished {
+                    parser.next(tree)
+                }
+
+                return tree.to_dict()
+            ```
         - Is having a parsing API even useful at all?
 
     - Maybe also create the bindings for popular languages:
