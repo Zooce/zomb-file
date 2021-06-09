@@ -5,31 +5,31 @@
 const std = @import("std");
 const json = std.json;
 
-const buffer_size: usize = 4 * 1024; // 4k seems reasonable...
-const ZombFileParser = @import("zomb").Parser(std.fs.File, buffer_size);
+const Parser = @import("zomb").Parser;
 
 
 pub fn main() anyerror!void {
-    var file = fileblk: {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        const alloc = &gpa.allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const alloc = &gpa.allocator;
+    var file_contents = std.ArrayList(u8).init(alloc);
+    defer file_contents.deinit();
 
+    {
         const args = try std.process.argsAlloc(alloc);
         defer std.process.argsFree(alloc, args);
 
-        var path: []const u8 = undefined;
-        if (args.len == 2) {
-            path = args[1];
-        } else {
-            path = "../test.zomb";
-        }
+        const path: []const u8 = if (args.len >= 2) args[1] else "../test.zomb";
 
         const file = try std.fs.cwd().openFile(path, .{ .read = true });
+        defer file.close();
         std.log.info("Reading from {s}", .{path});
-        break :fileblk file;
-    };
 
-    var zomb_parser = ZombFileParser.init(&file);
+        const max_file_size = if (args.len >= 3) try std.fmt.parseUnsigned(usize, args[2], 10) else 100_000_000;
+
+        try file.reader().readAllArrayList(&file_contents, max_file_size);
+    }
+
+    var zomb_parser = Parser.init(file_contents.items, alloc);
     defer zomb_parser.deinit();
 
     try zomb_parser.parse();
