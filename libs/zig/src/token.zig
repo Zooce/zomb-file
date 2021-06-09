@@ -93,364 +93,392 @@ pub const Token = struct {
 
     /// The type of this token (duh)
     token_type: TokenType = undefined,
+
+    const Self = @This();
+
+    /// Given the original input, return the slice of that input which this token represents.
+    pub fn slice(self: Self, input_: []const u8) ![]const u8 {
+        if (self.offset > input_.len) {
+            return error.TokenOffsetTooBig;
+        }
+        if (self.offset + self.size > input_.len) {
+            return error.TokenSizeTooBig;
+        }
+        return input_[self.offset..self.offset + self.size];
+    }
 };
 
 /// Tokenizes...nuf sed
-pub fn Tokenizer(comptime FileType_: type, buffer_size_: anytype) type {
-    return struct {
+pub const Tokenizer = struct {
+    const Self = @This();
 
-        const Self = @This();
-        const ScannerType = Scanner(FileType_, buffer_size_);
+    /// The input slice
+    input: []const u8 = undefined,
+    input_cursor: usize = 0,
+    current_line: usize = 1,
 
-        scanner: ScannerType,
+    /// The token currently being discovered
+    token: Token = undefined,
 
-        /// The token currently being discovered
-        token: Token = undefined,
+    pub fn init(input_: []const u8) Self {
+        return Self{
+            .input = input_,
+        };
+    }
 
-        pub fn init(file_: *FileType_) Self {
-            return Self{
-                .scanner = ScannerType.init(file_),
-            };
-        }
+    /// Get the next token
+    pub fn next(self: *Self) !Token {
+        try self.skipSeparators();
+        self.token = Token{
+            .offset = self.input_cursor,
+            .line = self.current_line,
+        };
 
-        pub fn deinit(self: *Self) void {
-            self.scanner.deinit();
-        }
+        const byte = self.peek() orelse return self.eofToken();
 
-        /// Get the next token
-        pub fn next(self: *Self) !Token {
-            try self.skipSeparators();
-            self.token = Token{
-                .offset = self.scanner.file_cursor,
-                .line = self.scanner.current_line,
-            };
+        const delim_byte = std.meta.intToEnum(Delimiter, byte) catch Delimiter.None;
+        switch (delim_byte) {
+            // delimiters with special handling
+            .Quote => try self.quotedString(),
+            .ReverseSolidus => try self.multiLineString(),
+            .Dollar => try self.macroKey(),
 
-            const byte = self.scanner.peek() orelse return self.eofToken();
+            // the byte is not at delimiter, so handle it accordingly
+            .None => {
+                switch (byte) {
+                    // invalid control characters (white space is already a handled delimiter)
+                    0x00...0x1F => return error.InvalidControlCharacter,
 
-            const delim_byte = std.meta.intToEnum(Delimiter, byte) catch Delimiter.None;
-            switch (delim_byte) {
-                // delimiters with special handling
-                .Quote => try self.quotedString(),
-                .ReverseSolidus => try self.multiLineString(),
-                .Dollar => try self.macroKey(),
+                    '/' => try self.commentOrBareString(),
 
-                // the byte is not at delimiter, so handle it accordingly
-                .None => {
-                    switch (byte) {
-                        // invalid control characters (white space is already a handled delimiter)
-                        0x00...0x1F => return error.InvalidControlCharacter,
+                    // numbers
+                    '0'...'9' => {
+                        try self.numberOrBareString();
+                    },
 
-                        '/' => try self.commentOrBareString(),
-
-                        // numbers
-                        '0'...'9' => {
-                            try self.numberOrBareString();
-                        },
-
-                        else => try self.bareString(),
-                    }
-                },
-
-                else => try self.delimiter(),
-            }
-
-            return self.token;
-        }
-
-        pub fn tokenString(self: *Self, token_: Token, arrayList_: *std.ArrayList(u8)) !u64 {
-            return try self.scanner.readFrom(token_.offset, token_.size, arrayList_);
-        }
-
-        // ---- Multi-Character Token Parsing
-
-        /// Parses a Comment token.
-        fn comment(self: *Self) !void {
-            self.token.token_type = TokenType.Comment;
-
-            if (self.consume().? != '/') return error.InvalidComment;
-            if (self.consume().? != '/') return error.InvalidComment;
-            _ = self.consumeToBytes("\r\n"); // EOF is fine
-        }
-
-        fn delimiter(self: *Self) !void {
-            if (self.consume()) |byte| {
-                if (byte == '.') {
-                    if ((self.scanner.peek() orelse 0) == '.') {
-                        _ = self.consume();
-                        self.token.token_type = TokenType.Range;
-                        return;
-                    }
+                    else => try self.bareString(),
                 }
-                self.token.token_type = std.meta.intToEnum(TokenType, byte) catch unreachable;
-            } else {
-                return error.InvalidDelimiter;
+            },
+
+            else => try self.delimiter(),
+        }
+
+        return self.token;
+    }
+
+    // ---- Multi-Character Token Parsing
+
+    /// Parses a Comment token.
+    fn comment(self: *Self) !void {
+        self.token.token_type = TokenType.Comment;
+
+        if (self.consume().? != '/') return error.InvalidComment;
+        if (self.consume().? != '/') return error.InvalidComment;
+        _ = self.consumeToBytes("\r\n"); // EOF is fine
+    }
+
+    fn delimiter(self: *Self) !void {
+        if (self.consume()) |byte| {
+            if (byte == '.') {
+                if ((self.peek() orelse 0) == '.') {
+                    _ = self.consume();
+                    self.token.token_type = TokenType.Range;
+                    return;
+                }
+            }
+            self.token.token_type = std.meta.intToEnum(TokenType, byte) catch unreachable;
+        } else {
+            return error.InvalidDelimiter;
+        }
+    }
+
+    /// Parses a String token.
+    fn bareString(self: *Self) !void {
+        self.token.token_type = TokenType.String;
+
+        _ = self.consumeToBytes(delimiters); // EOF is fine
+    }
+
+    /// Parses a quoted String token.
+    fn quotedString(self: *Self) !void {
+        self.token.token_type = TokenType.String;
+
+        if (self.consume().? != '\"') return error.InvalidQuotedString;
+        while (self.consumeToBytes("\\\"")) {
+            switch (self.peek().?) {
+                '\\' => {
+                    try self.consumeEscapeSequence();
+                },
+                '"' => {
+                    // consume the ending double-quote and return
+                    _ = self.consume();
+                    return;
+                },
+                else => unreachable,
             }
         }
+        // if we're here, that's an error
+        return error.InvalidQuotedString;
+    }
 
-        /// Parses a String token.
-        fn bareString(self: *Self) !void {
-            self.token.token_type = TokenType.String;
+    fn macroKey(self: *Self) !void {
+        if (self.consume().? != '$') return error.InvalidMacroKey;
 
-            _ = self.consumeToBytes(delimiters); // EOF is fine
+        switch (self.peek() orelse 0) {
+            '\"' => {
+                try self.quotedString();
+                if (self.token.size == 2) {
+                    return error.InvalidQuotedMacroKey;
+                }
+            },
+            else => {
+                try self.bareString();
+                if (self.token.size == 0) {
+                    return error.InvalidBareMacroKey;
+                }
+            },
         }
 
-        /// Parses a quoted String token.
-        fn quotedString(self: *Self) !void {
-            self.token.token_type = TokenType.String;
+        // overwrite the token type
+        self.token.token_type = TokenType.MacroKey;
+    }
 
-            if (self.consume().? != '\"') return error.InvalidQuotedString;
-            while (self.consumeToBytes("\\\"")) {
-                switch (self.scanner.peek().?) {
-                    '\\' => {
-                        try self.consumeEscapeSequence();
+    /// Parses a multi-line string, based on the following rule:
+    /// - The `\\` delimiter starts each line of a multi-line string.
+    /// - Multi-line strings run to the end of the line they start on.
+    /// - The ending newline (either `\r\n` or `\n`) should be included in the token's length.
+    /// - More than one newline between multi-line strings starts a new multi-line string.
+    fn multiLineString(self: *Self) !void {
+        self.token.token_type = TokenType.MultiLineString;
+
+        var end_is_crlf = false;
+        while (true) {
+            if (self.consume().? != '\\') return error.InvalidFirstMultiLineStringByte;
+            if (self.consume().? != '\\') return error.InvalidSecondMultiLineStringByte;
+            if (!self.consumeToBytes("\r\n")) return; // EOF is fine
+            // newlines are part of multi-line strings to consume them so they are counted towards the token length
+            if (self.consume()) |byte| {
+                switch (byte) {
+                    '\r' => {
+                        if (self.consume().? != '\n') return error.CarriageReturnError;
+                        end_is_crlf = true;
                     },
-                    '"' => {
-                        // consume the ending double-quote and return
-                        _ = self.consume();
-                        return;
-                    },
+                    '\n' => end_is_crlf = false,
                     else => unreachable,
                 }
             }
-            // if we're here, that's an error
-            return error.InvalidQuotedString;
-        }
-
-        fn macroKey(self: *Self) !void {
-            if (self.consume().? != '$') return error.InvalidMacroKey;
-
-            switch (self.scanner.peek() orelse 0) {
-                '\"' => {
-                    try self.quotedString();
-                    if (self.token.size == 2) {
-                        return error.InvalidQuotedMacroKey;
-                    }
-                },
-                else => {
-                    try self.bareString();
-                    if (self.token.size == 0) {
-                        return error.InvalidBareMacroKey;
-                    }
-                },
-            }
-
-            // overwrite the token type
-            self.token.token_type = TokenType.MacroKey;
-        }
-
-        /// Parses a multi-line string, based on the following rule:
-        /// - The `\\` delimiter starts each line of a multi-line string.
-        /// - Multi-line strings run to the end of the line they start on.
-        /// - The ending newline (either `\r\n` or `\n`) should be included in the token's length.
-        /// - More than one newline between multi-line strings starts a new multi-line string.
-        fn multiLineString(self: *Self) !void {
-            self.token.token_type = TokenType.MultiLineString;
-
-            var end_is_crlf = false;
-            while (true) {
-                if (self.consume().? != '\\') return error.InvalidFirstMultiLineStringByte;
-                if (self.consume().? != '\\') return error.InvalidSecondMultiLineStringByte;
-                if (!self.consumeToBytes("\r\n")) return; // EOF is fine
-                // newlines are part of multi-line strings to consume them so they are counted towards the token length
-                if (self.consume()) |byte| {
-                    switch (byte) {
-                        '\r' => {
-                            if (self.consume().? != '\n') return error.CarriageReturnError;
-                            end_is_crlf = true;
-                        },
-                        '\n' => end_is_crlf = false,
-                        else => unreachable,
-                    }
-                }
-                self.consumeWhileBytes("\t ");
-                if ((self.scanner.peek() orelse 0) != '\\') {
-                    break;
-                }
-            }
-
-            // the last newline is not part of the token
-            if (end_is_crlf) self.token.size -= 2 else self.token.size -= 1;
-        }
-
-        fn commentOrBareString(self: *Self) !void {
-            if (self.scanner.peek().? != '/') return error.InvalidCommentOrBareString;
-            if ((self.scanner.peekNext() orelse 0) == '/') {
-                try self.comment();
-            } else {
-                try self.bareString();
+            self.consumeWhileBytes("\t ");
+            if ((self.peek() orelse 0) != '\\') {
+                break;
             }
         }
 
-        fn numberOrBareString(self: *Self) !void {
-            self.token.token_type = TokenType.Number;
+        // the last newline is not part of the token
+        if (end_is_crlf) self.token.size -= 2 else self.token.size -= 1;
+    }
 
-            switch (self.consume().?) {
-                '0' => {
-                    if (self.atDelimiterOrEof()) {
-                        return;
-                    }
-                },
-                '1'...'9' => {
-                    self.consumeWhileInRange('0', '9');
-                    if (self.atDelimiterOrEof()) {
-                        return;
-                    }
-                },
-                else => return error.InvalidNumberOrBareString,
-            }
+    fn commentOrBareString(self: *Self) !void {
+        if (self.peek().? != '/') return error.InvalidCommentOrBareString;
+        if ((self.peekNext() orelse 0) == '/') {
+            try self.comment();
+        } else {
             try self.bareString();
         }
+    }
 
-        // ---- Basic Token Generators
+    fn numberOrBareString(self: *Self) !void {
+        self.token.token_type = TokenType.Number;
 
-        fn eofToken(self: *Self) Token {
-            self.token.offset = self.scanner.file_cursor;
-            self.token.size = 0;
-            self.token.token_type = TokenType.Eof;
-            return self.token;
+        switch (self.consume().?) {
+            '0' => {
+                if (self.atDelimiterOrEof()) {
+                    return;
+                }
+            },
+            '1'...'9' => {
+                self.consumeWhileInRange('0', '9');
+                if (self.atDelimiterOrEof()) {
+                    return;
+                }
+            },
+            else => return error.InvalidNumberOrBareString,
         }
+        try self.bareString();
+    }
 
-        // ---- Scanning Operations
+    // ---- Basic Token Generators
 
-        /// Consumes the current buffer byte (pointed to by the buffer cursor), which (in essence)
-        /// adds it to the current token. If the buffer is depleted then this returns `null`
-        /// otherwise it returns the consumed byte.
-        fn consume(self: *Self) ?u8 {
-            if (self.scanner.advance()) |byte| {
-                self.token.size += 1;
-                return byte;
-            }
+    fn eofToken(self: *Self) Token {
+        self.token.offset = self.input_cursor;
+        self.token.size = 0;
+        self.token.token_type = TokenType.Eof;
+        return self.token;
+    }
+
+    // ---- Scanning Operations
+
+    fn peek(self: Self) ?u8 {
+        if (self.input_cursor == self.input.len) {
             return null;
         }
+        return self.input[self.input_cursor];
+    }
 
-        /// Move the buffer cursor forward until one of the target bytes is found. All bytes leading
-        /// to the discovered target byte will be consumed, but that target byte will not be
-        /// consumed. If we can't find any of the target bytes, we return `false` otherwise we
-        /// return `true`.
-        fn consumeToBytes(self: *Self, targets_: []const u8) bool {
-            while (self.scanner.peek()) |byte| {
-                for (targets_) |target| {
-                    if (byte == target) {
-                        return true;
-                    }
-                }
-                _ = self.consume();
-            }
-
-            // We didn't find any of the target bytes.
-            return false;
+    fn peekNext(self: Self) ?u8 {
+        if (self.input_cursor + 1 >= self.input.len) {
+            return null;
         }
+        return self.input[self.input_cursor + 1];
+    }
 
-        fn consumeWhileBytes(self: *Self, targets_: []const u8) void {
-            peekloop: while (self.scanner.peek()) |byte| {
-                for (targets_) |target| {
-                    if (byte == target) {
-                        _ = self.consume();
-                        continue :peekloop;
-                    }
-                }
-                // The byte we're looking at did not match any target, so return.
-                return;
-            }
+    fn advance(self: *Self) ?u8 {
+        if (self.input_cursor == self.input.len) {
+            return null;
         }
+        self.input_cursor += 1;
+        const byte = self.input[self.input_cursor - 1];
+        if (byte == '\n') self.current_line += 1;
+        return byte;
+    }
 
-        /// Move the buffer cursor forward while it points to any byte in the specified, inclusive
-        /// range. All bytes scanned are consumed, while the final byte (which is not within the
-        /// specified range) is not.
-        fn consumeWhileInRange(self: *Self, lo_: u8, hi_: u8) void {
-            peekloop: while (self.scanner.peek()) |byte| {
-                if (byte >= lo_ and byte <= hi_) {
-                    _ = self.consume();
-                    continue :peekloop;
-                }
-                // The current byte is not in the specified range, so we stop here.
-                return;
-            }
+    /// Consumes the current buffer byte (pointed to by the buffer cursor), which (in essence)
+    /// adds it to the current token. If the buffer is depleted then this returns `null`
+    /// otherwise it returns the consumed byte.
+    fn consume(self: *Self) ?u8 {
+        if (self.advance()) |byte| {
+            self.token.size += 1;
+            return byte;
         }
+        return null;
+    }
 
-        fn consumeEscapeSequence(self: *Self) !void {
-            if (self.consume().? != '\\') return error.InvalidEscapeSequence;
-            if (self.consume()) |byte| {
-                switch (byte) {
-                    '\"', '\\', 'b', 'f', 'n', 'r', 't' => return,
-                    'u' => {
-                        try self.consumeHex();
-                        try self.consumeHex();
-                        try self.consumeHex();
-                        try self.consumeHex();
-                        return;
-                    },
-                    else => return error.InvalidEscapeSequence,
-                }
-            }
-            return error.InvalidEscapeSequence;
-        }
-
-        fn consumeHex(self: *Self) !void {
-            if (self.consume()) |byte| {
-                switch (byte) {
-                    '0'...'9', 'A'...'F', 'a'...'f' => return,
-                    else => return error.InvalidHex,
-                }
-            }
-            return error.InvalidHex;
-        }
-
-        /// Move the buffer cursor forward while one of the target bytes is found.
-        fn skipWhileBytes(self: *Self, targets_: []const u8) void {
-            peekloop: while (self.scanner.peek()) |byte| {
-                for (targets_) |target| {
-                    if (byte == target) {
-                        _ = self.scanner.advance();
-                        continue :peekloop;
-                    }
-                }
-                // The byte we're looking at did not match any target, so return.
-                return;
-            }
-        }
-
-        /// Advance the scanner until the start of a token is found. If more than one comma is
-        /// encountered while skipping separators, error.TooManyCommas error is returned.
-        fn skipSeparators(self: *Self) !void {
-            var found_comma = false;
-            while (self.scanner.peek()) |byte| {
-                switch (byte) {
-                    ' ', '\t', '\n' => {
-                        _ = self.scanner.advance();
-                    },
-                    '\r' => { // TODO: is this block necessary?
-                        _ = self.scanner.advance();
-                        if ((self.scanner.peek() orelse 0) == '\n') {
-                            _ = self.scanner.advance();
-                        } else {
-                            return error.CarriageReturnError;
-                        }
-                    },
-                    ',' => {
-                        if (found_comma) {
-                            return error.TooManyCommas;
-                        }
-                        found_comma = true;
-                        _ = self.scanner.advance();
-                    },
-                    else => return,
-                }
-            }
-        }
-
-        fn atDelimiterOrEof(self: *Self) bool {
-            const byte = self.scanner.peek() orelse return true; // EOF is fine
-            // check for delimiters
-            for (delimiters) |d| {
-                if (byte == d) {
+    /// Move the buffer cursor forward until one of the target bytes is found. All bytes leading
+    /// to the discovered target byte will be consumed, but that target byte will not be
+    /// consumed. If we can't find any of the target bytes, we return `false` otherwise we
+    /// return `true`.
+    fn consumeToBytes(self: *Self, targets_: []const u8) bool {
+        while (self.peek()) |byte| {
+            for (targets_) |target| {
+                if (byte == target) {
                     return true;
                 }
             }
-            return false;
+            _ = self.consume();
         }
-    }; // end Tokenizer struct
-} // end Tokenizer type fn
+
+        // We didn't find any of the target bytes.
+        return false;
+    }
+
+    fn consumeWhileBytes(self: *Self, targets_: []const u8) void {
+        peekloop: while (self.peek()) |byte| {
+            for (targets_) |target| {
+                if (byte == target) {
+                    _ = self.consume();
+                    continue :peekloop;
+                }
+            }
+            // The byte we're looking at did not match any target, so return.
+            return;
+        }
+    }
+
+    /// Move the buffer cursor forward while it points to any byte in the specified, inclusive
+    /// range. All bytes scanned are consumed, while the final byte (which is not within the
+    /// specified range) is not.
+    fn consumeWhileInRange(self: *Self, lo_: u8, hi_: u8) void {
+        peekloop: while (self.peek()) |byte| {
+            if (byte >= lo_ and byte <= hi_) {
+                _ = self.consume();
+                continue :peekloop;
+            }
+            // The current byte is not in the specified range, so we stop here.
+            return;
+        }
+    }
+
+    fn consumeEscapeSequence(self: *Self) !void {
+        if (self.consume().? != '\\') return error.InvalidEscapeSequence;
+        if (self.consume()) |byte| {
+            switch (byte) {
+                '\"', '\\', 'b', 'f', 'n', 'r', 't' => return,
+                'u' => {
+                    try self.consumeHex();
+                    try self.consumeHex();
+                    try self.consumeHex();
+                    try self.consumeHex();
+                    return;
+                },
+                else => return error.InvalidEscapeSequence,
+            }
+        }
+        return error.InvalidEscapeSequence;
+    }
+
+    fn consumeHex(self: *Self) !void {
+        if (self.consume()) |byte| {
+            switch (byte) {
+                '0'...'9', 'A'...'F', 'a'...'f' => return,
+                else => return error.InvalidHex,
+            }
+        }
+        return error.InvalidHex;
+    }
+
+    /// Move the buffer cursor forward while one of the target bytes is found.
+    fn skipWhileBytes(self: *Self, targets_: []const u8) void {
+        peekloop: while (self.peek()) |byte| {
+            for (targets_) |target| {
+                if (byte == target) {
+                    _ = self.advance();
+                    continue :peekloop;
+                }
+            }
+            // The byte we're looking at did not match any target, so return.
+            return;
+        }
+    }
+
+    /// Advance the scanner until the start of a token is found. If more than one comma is
+    /// encountered while skipping separators, error.TooManyCommas error is returned.
+    fn skipSeparators(self: *Self) !void {
+        var found_comma = false;
+        while (self.peek()) |byte| {
+            switch (byte) {
+                ' ', '\t', '\n' => {
+                    _ = self.advance();
+                },
+                '\r' => { // TODO: is this block necessary?
+                    _ = self.advance();
+                    if ((self.peek() orelse 0) == '\n') {
+                        _ = self.advance();
+                    } else {
+                        return error.CarriageReturnError;
+                    }
+                },
+                ',' => {
+                    if (found_comma) {
+                        return error.TooManyCommas;
+                    }
+                    found_comma = true;
+                    _ = self.advance();
+                },
+                else => return,
+            }
+        }
+    }
+
+    fn atDelimiterOrEof(self: *Self) bool {
+        const byte = self.peek() orelse return true; // EOF is fine
+        // check for delimiters
+        for (delimiters) |d| {
+            if (byte == d) {
+                return true;
+            }
+        }
+        return false;
+    }
+}; // end Tokenizer struct
 
 
 //==============================================================================
@@ -462,10 +490,6 @@ pub fn Tokenizer(comptime FileType_: type, buffer_size_: anytype) type {
 
 const testing = std.testing;
 const test_allocator = testing.allocator;
-const StringReader = @import("string_reader.zig").StringReader;
-
-const test_buffer_size: usize = 32;
-const StringTokenizer = Tokenizer(StringReader, test_buffer_size);
 
 /// A structure describing the expected token.
 const ExpectedToken = struct {
@@ -486,7 +510,7 @@ fn expectToken(expected_token_: ExpectedToken, token_: Token, orig_str_: []const
         // also make sure our test token is correct just to make sure
         testing.expectEqualSlices(u8, "", expected_token_.str) catch { ok = false; };
     }
-    const actual = orig_str_[token_.offset .. token_.offset + token_.size];
+    const actual = try token_.slice(orig_str_);
     testing.expectEqualStrings(expected_token_.str, actual) catch { ok = false; };
 
     if (!ok) {
@@ -495,11 +519,7 @@ fn expectToken(expected_token_: ExpectedToken, token_: Token, orig_str_: []const
 }
 
 fn doTokenTest(str_: []const u8, expected_tokens_: []const ExpectedToken) !void {
-    var string_reader = StringReader{ .str = str_ };
-    var token_string = std.ArrayList(u8).init(test_allocator);
-    defer token_string.deinit();
-    var tokenizer = StringTokenizer.init(&string_reader);
-    defer tokenizer.deinit();
+    var tokenizer = Tokenizer.init(str_);
     for (expected_tokens_) |expected_token, i| {
         const actual_token = try tokenizer.next();
         errdefer {
@@ -514,12 +534,6 @@ fn doTokenTest(str_: []const u8, expected_tokens_: []const ExpectedToken) !void 
             , .{i, expected_token.str, expected_token.line, expected_token.token_type, actual_token});
         }
         try expectToken(expected_token, actual_token, str_);
-        if (actual_token.token_type != TokenType.Eof) {
-            const string_len = try tokenizer.tokenString(actual_token, &token_string);
-            try testing.expectEqual(expected_token.str.len, string_len);
-            try testing.expectEqualStrings(expected_token.str, token_string.items);
-            token_string.clearRetainingCapacity();
-        }
     }
 }
 
