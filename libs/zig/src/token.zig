@@ -189,8 +189,10 @@ pub const Tokenizer = struct {
             //     \\
             //     \\State = {} (stage = {})
             //     \\Token = {}
+            //     \\Slice = {s}
+            //     \\Byte  = {c}
             //     \\
-            // , .{self.state, self.state_stage, self.token});
+            // , .{self.state, self.state_stage, self.token, self.token.slice(self.buffer), self.peek().?});
 
             switch (self.state) {
                 // TODO: add transition table comment
@@ -273,7 +275,7 @@ pub const Tokenizer = struct {
                         if (self.consume().? != '"') return error.UnexpectedCommonQuotedStringStage0Byte;
                         self.state_stage = 1;
                     },
-                    1 => if (self.consumeToBytes("\\\"")) |target| { // unescaped bytes or ending quotation mark
+                    1 => if (self.consumeToBytes("\\\"")) |target| { // non-escaped bytes or ending quotation mark
                         switch (self.consume().?) { // consume the target byte
                             '"' => {
                                 self.tokenComplete();
@@ -313,7 +315,10 @@ pub const Tokenizer = struct {
                         self.state_stage = 1;
                     },
                     1 => switch (self.peek().?) { // start of quoted macro key or bare macro key
-                        '"' => self.state = State.QuotedString,
+                        '"' => {
+                            self.state_stage = 0;
+                            self.state = State.QuotedString;
+                        },
                         else => self.state = State.BareString,
                     },
                     else => return error.UnexpectedMacroKeyStage,
@@ -812,6 +817,32 @@ test "macro with parameters declaration" {
         ExpectedToken{ .str = "settings", .line = 3, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "$settings", .line = 3, .token_type = TokenType.MacroKey },
+        ExpectedToken{ .str = "}", .line = 4, .token_type = TokenType.CloseCurly },
+    };
+    try doTokenTest(str, &expected_tokens);
+}
+
+test "quoted macro keys and parameters" {
+    const str =
+        \\$" ok = ." = 5
+        \\$" = {\""(" = ") = {
+        \\    scope = $" = "
+        \\}
+        \\
+    ;
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "$\" ok = .\"", .line = 1, .token_type = TokenType.MacroKey },
+        ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = "5", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "$\" = {\\\"\"", .line = 2, .token_type = TokenType.MacroKey },
+        ExpectedToken{ .str = "(", .line = 2, .token_type = TokenType.OpenParen },
+        ExpectedToken{ .str = "\" = \"", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = ")", .line = 2, .token_type = TokenType.CloseParen },
+        ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = "{", .line = 2, .token_type = TokenType.OpenCurly },
+        ExpectedToken{ .str = "scope", .line = 3, .token_type = TokenType.String },
+        ExpectedToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = "$\" = \"", .line = 3, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "}", .line = 4, .token_type = TokenType.CloseCurly },
     };
     try doTokenTest(str, &expected_tokens);

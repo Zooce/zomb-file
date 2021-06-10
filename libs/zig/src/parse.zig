@@ -109,7 +109,7 @@ pub const Parser = struct {
     pub fn parse(self: *Self) !void {
         var token = try self.tokenizer.next();
 
-        parseloop: while (token.token_type != TokenType.Eof) {
+        parseloop: while (!self.tokenizer.at_end_of_buffer) {
             // ===--- for prototyping only ---===
             std.log.info(
                 \\
