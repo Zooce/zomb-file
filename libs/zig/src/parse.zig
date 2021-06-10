@@ -4,50 +4,24 @@ const Tokenizer = @import("token.zig").Tokenizer;
 const TokenType = @import("token.zig").TokenType;
 const Token = @import("token.zig").Token;
 
-// pub const ZombValueMap = std.StringArrayHashMap(ZombValue);
-// pub const ZombValueArray = std.ArrayList(ZombValue);
+pub const ZombTypeMap = std.StringArrayHashMap(ZombType);
+pub const ZombTypeArray = std.ArrayList(ZombType);
 
-// pub const ZombValue = union(enum) {
-//     Object: ZombValueMap,
-//     Array: ZombValueArray,
-//     String: []const u8,
-//     None: void,
-// };
+pub const ZombType = union(enum) {
+    Object: ZombTypeMap,
+    Array: ZombTypeArray,
+    String: []const u8,
+    Empty: void,
+};
 
-// pub const ZombMacro = struct {
-//     parameter_names: std.ArrayList([]const u8),
-//     parameters: ZombValueMap,
-//     value: ZombValue,
+pub const Zomb = struct {
+    arena: std.heap.ArenaAllocator,
+    map: ZombTypeMap,
 
-//     const Self = @This();
-
-//     pub fn init(alloc_: *std.mem.Allocator) Self {
-//         return Self{
-//             .parameter_names = std.ArrayList([]const u8).init(alloc_),
-//             .parameters = ZombValueMap.init(alloc_),
-//             .value = ZombValue{ .None = void },
-//         };
-//     }
-
-//     pub fn deinit(self: *Self) void {
-//         self.parameter_names.deinit();
-//         self.parameters.deinit();
-//         switch (self.value) {
-//             .None, .String => {},
-//             else => {
-//                 self.value.deinit();
-//             }
-//         }
-//     }
-// };
-
-// pub const ZombMacroMap = std.StringArrayHashMap(ZombMacro);
-
-// pub const ZombTree = struct {
-//     arena: std.heap.ArenaAllocator,
-//     macros: ZombMacroMap,
-//     values: ZombValueMap,
-// };
+    pub fn deinit(self: @This()) void {
+        self.arena.deinit();
+    }
+};
 
 pub const Parser = struct {
     const Self = @This();
@@ -56,6 +30,12 @@ pub const Parser = struct {
     const max_stack_size = 64; // this is fairly reasonable (add more stacks if we need more?)
 
     // stack elements
+    //  HEX value combinations ref:
+    //                   obj             arr             use             par
+    //  obj   0x0 -> obj/obj  0x1 -> obj/arr  0x2 -> obj/use  0x3 -> -------
+    //  arr   0x4 -> arr/obj  0x5 -> arr/arr  0x6 -> arr/use  0x7 -> -------
+    //  use   0x8 -> -------  0x9 -> -------  0xA -> -------  0xB -> use/par
+    //  par   0xC -> par/obj  0xD -> par/arr  0xE -> par/use  0xF -> -------
     const stack_object = 0;
     const stack_array = 1;
     const stack_macro_use = 2;
@@ -86,37 +66,50 @@ pub const Parser = struct {
     stack: u128 = 0,
     stack_size: u8 = 0,
 
-    // value_stack: ZombValueArray,
     // macros: ZombMacroMap,
-    // values: ZombValueMap,
+    // zomb_type_map: ZombTypeMap,
+    zomb_type_stack: ZombTypeArray,
 
     // cur_macro_decl_key: []const u8 = undefined,
 
+    macro_decl: bool = false,
 
     pub fn init(input_: []const u8, alloc_: *std.mem.Allocator) Self {
         return Self{
             .allocator = alloc_,
             .input = input_,
             .tokenizer = Tokenizer.init(input_),
-            // .macros = ZombMacroMap.init(alloc_),
+            .zomb_type_stack = ZombTypeArray.init(alloc_),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        // self.macros.deinit();
+        self.zomb_type_stack.deinit();
     }
 
-    pub fn parse(self: *Self) !void {
-        var token = try self.tokenizer.next();
+    pub fn parse(self: *Self) !Zomb {
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        errdefer arena.deinit();
 
+        // our stack has an implicit top-level object
+        try self.zomb_type_stack.append(ZombType{ .Object = ZombTypeMap.init(&arena.allocator) });
+
+        var token = try self.tokenizer.next(); // TODO: consider returning null when at_end_of_buffer == true
         parseloop: while (!self.tokenizer.at_end_of_buffer) {
+            // NOTE: we deliberately do not get the next token at the start of this loop in cases where we want to keep
+            //       the previous token -- instead, we get the next token at the end of this loop
+
             // ===--- for prototyping only ---===
             std.log.info(
                 \\
-                \\State: {} (stage = {})
-                \\Stack: 0x{b:0>128} (size = {})
-                \\Type : {} (line = {})
-                \\Token: {s}
+                \\State      : {} (stage = {})
+                \\Bit Stack  : 0x{X:0>32} (size = {})
+                \\Type       : {} (line = {})
+                \\Token      : {s}
+                \\Stack Len  : {}
+                \\Macro Decl : {}
+                \\Macro Bits : {}
+                \\
                 // \\Macro Keys: {s}
                 \\
                 , .{
@@ -127,12 +120,15 @@ pub const Parser = struct {
                     token.token_type,
                     token.line,
                     token.slice(self.input),
+                    self.zomb_type_stack.items.len,
+                    self.macro_decl,
+                    self.bitStackHasMacros(),
                     // self.macros.keys(),
                 }
             );
             // ===----------------------------===
 
-            // comments are ignored everywhere - yes, this does allow very odd formatting, but who cares?
+            // comments are ignored everywhere - make sure to get the next token as well
             if (token.token_type == TokenType.Comment) {
                 token = try self.tokenizer.next();
                 continue :parseloop;
@@ -146,15 +142,16 @@ pub const Parser = struct {
                 //         else             >> error
                 .Decl => switch (token.token_type) {
                     .MacroKey => {
-                        // self.cur_macro_decl_key = try token.slice(self.input);
-                        // var result = try self.macros.getOrPut(self.cur_macro_decl_key);
-                        // if (result.found_existing) {
-                        //     return error.DuplicateMacroDecl;
-                        // }
-                        // result.value_ptr.* = ZombMacro.init(self.allocator);
+                        // TODO: properly implement macro decls
+                        self.macro_decl = true;
                         self.state = State.MacroDecl;
                     },
-                    .String, .Number => self.state = State.KvPair,
+                    .String, .Number => {
+                        self.macro_decl = false;
+                        const key = try token.slice(self.input);
+                        try self.stackPush(ZombType{ .String = key });
+                        self.state = State.KvPair;
+                    },
                     else => return error.UnexpectedDeclToken,
                 },
 
@@ -197,12 +194,25 @@ pub const Parser = struct {
                     },
                     3 => switch (token.token_type) { // value
                         .String, .Number, .MultiLineString => {
-                            self.state = State.Decl;
+                            // const val = try token.slice(self.input);
+                            // try self.stackConsumeKvPair(ZombType{ .String = val });
+
                             self.state_stage = 0;
+                            self.state = State.Decl;
                         },
-                        .MacroKey => try self.stackPush(stack_macro_use),
-                        .OpenCurly => try self.stackPush(stack_object),
-                        .OpenSquare => try self.stackPush(stack_array),
+                        .MacroKey => {
+                            // TODO: we are currently ignoring macro keys since they will need special treatment
+                            // try self.stackConsumeKvPair(ZombType.Empty);
+                            try self.bitStackPush(stack_macro_use);
+                        },
+                        .OpenCurly => {
+                            // try self.zomb_type_stack.append(ZombType{ .Object = ZombTypeMap.init(&arena.allocator) });
+                            try self.bitStackPush(stack_object);
+                        },
+                        .OpenSquare => {
+                            // try self.zomb_type_stack.append(ZombType{ .Array = ZombTypeArray.init(&arena.allocator) });
+                            try self.bitStackPush(stack_array);
+                        },
                         else => return error.UnexpectedMacroDeclStage3Token,
                     },
                     else => return error.UnexpectedMacroDeclStage,
@@ -226,19 +236,34 @@ pub const Parser = struct {
                     },
                     1 => switch (token.token_type) {
                         .String, .Number, .MultiLineString => {
+                            if (!self.macro_decl and !self.bitStackHasMacros()) {
+                                const val = try token.slice(self.input);
+                                try self.stackConsumeKvPair(ZombType{ .String = val });
+                            }
+
                             self.state_stage = 0;
-                            if (self.stackPeek()) |stack_type| {
+                            if (self.bitStackPeek()) |stack_type| {
                                 switch (stack_type) {
                                     stack_object => self.state = State.Object,
-                                    else => return error.UnexpectedKvPairStackPeek,
+                                    else => return error.UnexpectedKvPairBitStackPeek,
                                 }
                             } else {
                                 self.state = State.Decl;
                             }
                         },
-                        .MacroKey => try self.stackPush(stack_macro_use),
-                        .OpenCurly => try self.stackPush(stack_object),
-                        .OpenSquare => try self.stackPush(stack_array),
+                        .MacroKey => {
+                            // TODO: we are currently ignoring macro keys since they will need special treatment
+                            if (!self.macro_decl and !self.bitStackHasMacros()) try self.stackConsumeKvPair(ZombType.Empty);
+                            try self.bitStackPush(stack_macro_use);
+                        },
+                        .OpenCurly => {
+                            if (!self.macro_decl and !self.bitStackHasMacros()) try self.zomb_type_stack.append(ZombType{ .Object = ZombTypeMap.init(&arena.allocator) });
+                            try self.bitStackPush(stack_object);
+                        },
+                        .OpenSquare => {
+                            if (!self.macro_decl and !self.bitStackHasMacros()) try self.zomb_type_stack.append(ZombType{ .Array = ZombTypeArray.init(&arena.allocator) });
+                            try self.bitStackPush(stack_array);
+                        },
                         else => return error.UnexpectedKvPairStage1Token,
                     },
                     else => return error.UnexpectedKvPairStage,
@@ -250,8 +275,23 @@ pub const Parser = struct {
                 //         CloseCurly       >> stack or Decl
                 //         else             >> error
                 .Object => switch (token.token_type) {
-                    .String, .Number => self.state = State.KvPair,
-                    .CloseCurly => try self.stackPop(),
+                    .String, .Number => {
+                        if (!self.macro_decl and !self.bitStackHasMacros()) {
+                            const key = try token.slice(self.input);
+                            try self.stackPush(ZombType{ .String = key });
+                        }
+                        self.state = State.KvPair;
+                    },
+                    .CloseCurly => {
+                        try self.bitStackPop();
+                        if (!self.macro_decl and !self.bitStackHasMacros()) {
+                            switch (self.bitStackPeek() orelse stack_object) {
+                                stack_object => try self.stackConsumeKvPair(self.zomb_type_stack.pop()),
+                                stack_array => try self.stackConsumeArrayValue(self.zomb_type_stack.pop()),
+                                else => return error.UnexpectedObjectBitStackPeek,
+                            }
+                        }
+                    },
                     else => return error.UnexpectedObjectToken,
                 },
 
@@ -265,11 +305,31 @@ pub const Parser = struct {
                 //         CloseSquare      >> stack or Decl
                 //         else             >> error
                 .Array => switch (token.token_type) {
-                    .String, .Number, .MultiLineString => {},
-                    .MacroKey => try self.stackPush(stack_macro_use),
-                    .OpenCurly => try self.stackPush(stack_object),
-                    .OpenSquare => try self.stackPush(stack_array),
-                    .CloseSquare => try self.stackPop(),
+                    .String, .Number, .MultiLineString => if (!self.macro_decl and !self.bitStackHasMacros()) {
+                        const val = try token.slice(self.input);
+                        try self.stackConsumeArrayValue(ZombType{ .String = val });
+                    },
+                    .MacroKey => {
+                        try self.bitStackPush(stack_macro_use);
+                    },
+                    .OpenCurly => {
+                        if (!self.macro_decl and !self.bitStackHasMacros()) try self.zomb_type_stack.append(ZombType{ .Object = ZombTypeMap.init(&arena.allocator) });
+                        try self.bitStackPush(stack_object);
+                    },
+                    .OpenSquare => {
+                        if (!self.macro_decl and !self.bitStackHasMacros()) try self.zomb_type_stack.append(ZombType{ .Array = ZombTypeArray.init(&arena.allocator) });
+                        try self.bitStackPush(stack_array);
+                    },
+                    .CloseSquare => {
+                        try self.bitStackPop();
+                        if (!self.macro_decl and !self.bitStackHasMacros()) {
+                            switch (self.bitStackPeek() orelse stack_object) {
+                                stack_object => try self.stackConsumeKvPair(self.zomb_type_stack.pop()),
+                                stack_array => try self.stackConsumeArrayValue(self.zomb_type_stack.pop()),
+                                else => return error.UnexpectedObjectBitStackPeek,
+                            }
+                        }
+                    },
                     else => return error.UnexpectedArrayToken,
                 },
 
@@ -304,9 +364,9 @@ pub const Parser = struct {
                     1 => switch (token.token_type) { // params or accessor
                         .Dot => self.state_stage = 0,
                         .OpenSquare => self.state_stage = 2,
-                        .OpenParen => try self.stackPush(stack_macro_use_params),
+                        .OpenParen => try self.bitStackPush(stack_macro_use_params),
                         else => {
-                            try self.stackPop();
+                            try self.bitStackPop();
                             continue :parseloop;
                         },
                     },
@@ -350,17 +410,17 @@ pub const Parser = struct {
                 .MacroUseParams => switch (self.state_stage) {
                     0 => switch (token.token_type) {
                         .String, .Number, .MultiLineString => self.state_stage = 1,
-                        .MacroKey => try self.stackPush(stack_macro_use),
-                        .OpenCurly => try self.stackPush(stack_object),
-                        .OpenSquare => try self.stackPush(stack_array),
+                        .MacroKey => try self.bitStackPush(stack_macro_use),
+                        .OpenCurly => try self.bitStackPush(stack_object),
+                        .OpenSquare => try self.bitStackPush(stack_array),
                         else => return error.UnexpectedMacroUseParamsStage0Token,
                     },
                     1 => switch (token.token_type) {
                         .String, .Number, .MultiLineString => {},
-                        .MacroKey => try self.stackPush(stack_macro_use),
-                        .OpenCurly => try self.stackPush(stack_object),
-                        .OpenSquare => try self.stackPush(stack_array),
-                        .CloseParen => try self.stackPop(),
+                        .MacroKey => try self.bitStackPush(stack_macro_use),
+                        .OpenCurly => try self.bitStackPush(stack_object),
+                        .OpenSquare => try self.bitStackPush(stack_array),
+                        .CloseParen => try self.bitStackPop(),
                         else => return error.UnexpectedMacroUseParamsStage1Token,
                     },
                     else => return error.UnexpectedMacroUseParamsStage,
@@ -368,12 +428,32 @@ pub const Parser = struct {
             }
 
             token = try self.tokenizer.next();
-        }
+        } // end :parseloop
+
+        return Zomb{
+            .arena = arena,
+            .map = self.zomb_type_stack.pop().Object,
+        };
     }
 
-    fn stackPush(self: *Self, stack_type: u2) !void {
+    fn stackPush(self: *Self, zomb_type_: ZombType) !void {
+        try self.zomb_type_stack.append(zomb_type_);
+    }
+
+    fn stackConsumeKvPair(self: *Self, zomb_type_: ZombType) !void {
+        const key = self.zomb_type_stack.pop();
+        var object = &self.zomb_type_stack.items[self.zomb_type_stack.items.len - 1].Object;
+        try object.put(key.String, zomb_type_);
+    }
+
+    fn stackConsumeArrayValue(self: *Self, zomb_type_: ZombType) !void {
+        var array = &self.zomb_type_stack.items[self.zomb_type_stack.items.len - 1].Array;
+        try array.append(zomb_type_);
+    }
+
+    fn bitStackPush(self: *Self, stack_type: u2) !void {
         if (self.stack_size > max_stack_size) {
-            return error.TooManyStackPushes;
+            return error.TooManyBitStackPushes;
         }
         self.stack <<= stack_shift;
         self.stack |= stack_type;
@@ -391,9 +471,9 @@ pub const Parser = struct {
         }
     }
 
-    fn stackPop(self: *Self) !void {
+    fn bitStackPop(self: *Self) !void {
         if (self.stack_size == 0) {
-            return error.TooManyStackPops;
+            return error.TooManybitStackPops;
         }
         self.stack >>= stack_shift;
         self.stack_size -= 1;
@@ -422,11 +502,15 @@ pub const Parser = struct {
         }
     }
 
-    fn stackPeek(self: Self) ?u2 {
+    fn bitStackPeek(self: Self) ?u2 {
         if (self.stack_size == 0) {
             return null;
         }
         return @intCast(u2, self.stack & 0b11);
+    }
+
+    fn bitStackHasMacros(self: Self) bool {
+        return (self.stack & 0x2222_2222_2222_2222_2222_2222_2222_2222) > 0;
     }
 };
 
@@ -441,40 +525,6 @@ const testing = std.testing;
 
 const StringReader = @import("string_reader.zig").StringReader;
 const StringParser = Parser(StringReader, 32);
-
-// test "temp parse test" {
-//     const str =
-//         \\$m1(one two) = { // macro with paramters
-//         \\    hello = $one
-//         \\    goodbye = [ 42 // the answer
-//         \\        $two ]
-//         \\}
-//         \\$"hi.dude" = this // macro without parameters
-//         \\// Did you notice you can have comments?
-//         \\cool = {
-//         \\    ports = [ 800 900 ]
-//         \\    this = $"hi.dude"
-//         \\    "wh.at" = $m1( 0 $m1( a, b ) ).goodbye  // commas are optional, yay!
-//         \\    // "thing" points to a multi-line string...cool I guess
-//         \\    oh_yea = { thing = \\cool = {
-//         \\                       \\    ports = [ 800 900 ]
-//         \\                       \\    this = $"hi.dude"
-//         \\                       \\    what = $m1( 0 $m1( a b ) ).goodbye
-//         \\                       \\    oh_yea = { thing = "nope" }
-//         \\                       \\}
-//         \\                       \\$hi = this // hi there!
-//         \\                       \\$m1(one two) = {
-//         \\                       \\    hello = $one
-//         \\                       \\    goodbye = $two
-//         \\                       \\}
-//         \\    }
-//         \\}
-//     ;
-//     var string_reader = StringReader{ .str = str };
-//     var parser = StringParser.init(&string_reader);
-//     defer parser.deinit();
-//     // try parser.parse();
-// }
 
 test "stack logic" {
     var stack: u128 = 0;

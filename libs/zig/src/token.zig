@@ -103,6 +103,8 @@ pub const Token = struct {
     /// Whether this token is a valid ZOMB token.
     is_valid: bool = false,
 
+    // TODO: is_partial: bool = false, // token is valid, but ended at the EOF
+
     const Self = @This();
 
     /// Given the original input, return the slice of that input which this token represents.

@@ -5,7 +5,14 @@ pub const Tokenizer = token.Tokenizer;
 pub const TokenType = token.TokenType;
 pub const Token = token.Token;
 
-pub const Parser = @import("parse.zig").Parser;
+const parse = @import("parse.zig");
+pub const Parser = parse.Parser;
+pub const ZombType = parse.ZombType;
+
+pub const ZombTypeMap = parse.ZombTypeMap;
+pub const ZombTypeArray = parse.ZombTypeArray;
+pub const Zomb = parse.Zomb;
+
 
 pub const StringReader = @import("string_reader.zig").StringReader;
 

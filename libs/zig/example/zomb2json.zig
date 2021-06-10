@@ -5,7 +5,7 @@
 const std = @import("std");
 const json = std.json;
 
-const Parser = @import("zomb").Parser;
+const zomb = @import("zomb");
 
 
 pub fn main() anyerror!void {
@@ -29,10 +29,11 @@ pub fn main() anyerror!void {
         try file.reader().readAllArrayList(&file_contents, max_file_size);
     }
 
-    var zomb_parser = Parser.init(file_contents.items, alloc);
+    var zomb_parser = zomb.Parser.init(file_contents.items, alloc);
     defer zomb_parser.deinit();
 
-    try zomb_parser.parse();
+    const z = try zomb_parser.parse();
+    defer z.deinit();
 
     // TODO: const zomb_file = zomb_parser.parse();
     // TODO: convert `zomb_file` to a JSON file
