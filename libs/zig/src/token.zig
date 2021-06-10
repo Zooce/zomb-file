@@ -55,7 +55,7 @@ const delimiters = blk: {
 
 /// Special token types (usually a combination of Delimiters)
 const SpecialToken = enum(u8) {
-    Eof = 0,
+    None = 0,
     Range,
     Newline,
     Comment,
@@ -82,268 +82,398 @@ pub const TokenType = @Type(out: {
 /// to deal with carrying around pointers and all of the stuff that goes with that.
 pub const Token = struct {
     /// The offset into the file where this token begins.
-    offset: u64 = 0,
+    offset: usize = undefined,
 
     /// The number of bytes in this token.
-    size: u64 = 0,
+    size: usize = 0,
+
+    /// Since the Tokenizer is capable of handling streaming input, it's possible that a token may
+    /// span multiple buffers, so we keep track of this. In this situation, it is still the caller's
+    /// responsibility to use this information correctly.
+    start_buffer: usize = undefined,
+    end_buffer: usize = undefined,
 
     /// The line in the file where this token was discovered. This is based on the number of
     /// newline tokens the Tokenizer has encountered. If the calling code has altered the cursor
     line: usize = undefined,
 
     /// The type of this token (duh)
-    token_type: TokenType = undefined,
+    token_type: TokenType = TokenType.None,
+
+    /// Whether this token is a valid ZOMB token.
+    is_valid: bool = false,
 
     const Self = @This();
 
     /// Given the original input, return the slice of that input which this token represents.
-    pub fn slice(self: Self, input_: []const u8) ![]const u8 {
-        if (self.offset > input_.len) {
+    pub fn slice(self: Self, buffer_: []const u8) ![]const u8 {
+        if (self.start_buffer != self.end_buffer) {
+            std.log.warn("Token spans multiple buffers!", .{});
+        }
+        if (self.offset > buffer_.len) {
             return error.TokenOffsetTooBig;
         }
-        if (self.offset + self.size > input_.len) {
+        if (self.offset + self.size > buffer_.len) {
             return error.TokenSizeTooBig;
         }
-        return input_[self.offset..self.offset + self.size];
+        return buffer_[self.offset..self.offset + self.size];
     }
 };
 
-/// Tokenizes...nuf sed
+/// Parses tokens from the given input buffer.
 pub const Tokenizer = struct {
     const Self = @This();
 
-    /// The input slice
-    input: []const u8 = undefined,
-    input_cursor: usize = 0,
+    const State = enum {
+        None,
+        DotOrRange,
+        QuotedString,
+        MacroKey,
+        BareString,
+        MultiLineString,
+        BareStringOrComment,
+        NumberOrBareString,
+    };
+
+    state: State = State.None,
+    state_stage: u8 = 0,
+    crlf: bool = false,
+
+    /// The input buffer
+    buffer: []const u8 = undefined,
+    buffer_cursor: usize = 0,
     current_line: usize = 1,
+    at_end_of_buffer: bool = false,
+
+    /// This Tokenizer is capable of parsing buffered (or streaming) input, so we keep track of how
+    /// many buffers we've parsed.
+    buffer_index: usize = 0,
 
     /// The token currently being discovered
-    token: Token = undefined,
+    token: Token = Token{},
 
-    pub fn init(input_: []const u8) Self {
+    pub fn init(buffer_: []const u8) Self {
         return Self{
-            .input = input_,
+            .buffer = buffer_,
         };
     }
 
-    /// Get the next token
+    pub fn setBuffer(self: *Self, buffer_: []const u8) void {
+        self.buffer = buffer_;
+        self.buffer_cursor = 0;
+        self.buffer_index += 1;
+    }
+
+    fn tokenComplete(self: *Self) void {
+        self.state = State.None;
+        self.token.is_valid = true;
+        self.token.end_buffer = self.buffer_index;
+    }
+
+    fn tokenMaybeComplete(self: *Self) void {
+        self.token.is_valid = true;
+        self.token.end_buffer = self.buffer_index;
+    }
+
+    fn tokenNotComplete(self: *Self) void {
+        self.token.is_valid = false;
+        self.token.end_buffer = undefined;
+    }
+
+    /// Get the next token. Cases where a valid token is not found indicate that either EOF has been
+    /// reached or the current input buffer (when streaming the input) needs to be refilled. If an
+    /// error is encountered, the error is returned.
     pub fn next(self: *Self) !Token {
-        try self.skipSeparators();
-        self.token = Token{
-            .offset = self.input_cursor,
-            .line = self.current_line,
-        };
+        while (!self.at_end_of_buffer) {
+            // std.log.err(
+            //     \\
+            //     \\State = {} (stage = {})
+            //     \\Token = {}
+            //     \\
+            // , .{self.state, self.state_stage, self.token});
 
-        const byte = self.peek() orelse return self.eofToken();
+            switch (self.state) {
+                // TODO: add transition table comment
+                .None => {
+                    if ((try self.skipSeparators()) == false) return self.token;
 
-        const delim_byte = std.meta.intToEnum(Delimiter, byte) catch Delimiter.None;
-        switch (delim_byte) {
-            // delimiters with special handling
-            .Quote => try self.quotedString(),
-            .ReverseSolidus => try self.multiLineString(),
-            .Dollar => try self.macroKey(),
+                    self.token = Token{
+                        .offset = self.buffer_cursor,
+                        .line = self.current_line,
+                        .start_buffer = self.buffer_index,
+                    };
+                    self.state_stage = 0;
 
-            // the byte is not at delimiter, so handle it accordingly
-            .None => {
-                switch (byte) {
-                    // invalid control characters (white space is already a handled delimiter)
-                    0x00...0x1F => return error.InvalidControlCharacter,
-
-                    '/' => try self.commentOrBareString(),
-
-                    // numbers
-                    '0'...'9' => {
-                        try self.numberOrBareString();
-                    },
-
-                    else => try self.bareString(),
-                }
-            },
-
-            else => try self.delimiter(),
-        }
-
-        return self.token;
-    }
-
-    // ---- Multi-Character Token Parsing
-
-    /// Parses a Comment token.
-    fn comment(self: *Self) !void {
-        self.token.token_type = TokenType.Comment;
-
-        if (self.consume().? != '/') return error.InvalidComment;
-        if (self.consume().? != '/') return error.InvalidComment;
-        _ = self.consumeToBytes("\r\n"); // EOF is fine
-    }
-
-    fn delimiter(self: *Self) !void {
-        if (self.consume()) |byte| {
-            if (byte == '.') {
-                if ((self.peek() orelse 0) == '.') {
-                    _ = self.consume();
-                    self.token.token_type = TokenType.Range;
-                    return;
-                }
-            }
-            self.token.token_type = std.meta.intToEnum(TokenType, byte) catch unreachable;
-        } else {
-            return error.InvalidDelimiter;
-        }
-    }
-
-    /// Parses a String token.
-    fn bareString(self: *Self) !void {
-        self.token.token_type = TokenType.String;
-
-        _ = self.consumeToBytes(delimiters); // EOF is fine
-    }
-
-    /// Parses a quoted String token.
-    fn quotedString(self: *Self) !void {
-        self.token.token_type = TokenType.String;
-
-        if (self.consume().? != '\"') return error.InvalidQuotedString;
-        while (self.consumeToBytes("\\\"")) {
-            switch (self.peek().?) {
-                '\\' => {
-                    try self.consumeEscapeSequence();
+                    const byte = self.peek().?;
+                    const byte_as_delimiter = std.meta.intToEnum(Delimiter, byte) catch Delimiter.None;
+                    switch (byte_as_delimiter) {
+                        .Dot => self.state = State.DotOrRange,
+                        .Quote => {
+                            self.token.token_type = TokenType.String;
+                            self.state = State.QuotedString;
+                        },
+                        .Dollar => {
+                            self.token.token_type = TokenType.MacroKey;
+                            self.state = State.MacroKey;
+                        },
+                        .ReverseSolidus => {
+                            self.token.token_type = TokenType.MultiLineString;
+                            self.state = State.MultiLineString;
+                        },
+                        .None => {
+                            switch (byte) {
+                                0x00...0x1F => return error.InvalidControlCharacter,
+                                '/' => self.state = State.BareStringOrComment,
+                                '0'...'9' => self.state = State.NumberOrBareString,
+                                else => {
+                                    self.token.token_type = TokenType.String;
+                                    self.state = State.BareString;
+                                },
+                            }
+                        },
+                        else => {
+                            _ = self.consume();
+                            self.token.token_type = std.meta.intToEnum(TokenType, byte) catch unreachable;
+                            self.tokenComplete();
+                            return self.token;
+                        },
+                    }
                 },
-                '"' => {
-                    // consume the ending double-quote and return
-                    _ = self.consume();
-                    return;
-                },
-                else => unreachable,
-            }
-        }
-        // if we're here, that's an error
-        return error.InvalidQuotedString;
-    }
 
-    fn macroKey(self: *Self) !void {
-        if (self.consume().? != '$') return error.InvalidMacroKey;
-
-        switch (self.peek() orelse 0) {
-            '\"' => {
-                try self.quotedString();
-                if (self.token.size == 2) {
-                    return error.InvalidQuotedMacroKey;
-                }
-            },
-            else => {
-                try self.bareString();
-                if (self.token.size == 0) {
-                    return error.InvalidBareMacroKey;
-                }
-            },
-        }
-
-        // overwrite the token type
-        self.token.token_type = TokenType.MacroKey;
-    }
-
-    /// Parses a multi-line string, based on the following rule:
-    /// - The `\\` delimiter starts each line of a multi-line string.
-    /// - Multi-line strings run to the end of the line they start on.
-    /// - The ending newline (either `\r\n` or `\n`) should be included in the token's length.
-    /// - More than one newline between multi-line strings starts a new multi-line string.
-    fn multiLineString(self: *Self) !void {
-        self.token.token_type = TokenType.MultiLineString;
-
-        var end_is_crlf = false;
-        while (true) {
-            if (self.consume().? != '\\') return error.InvalidFirstMultiLineStringByte;
-            if (self.consume().? != '\\') return error.InvalidSecondMultiLineStringByte;
-            if (!self.consumeToBytes("\r\n")) return; // EOF is fine
-            // newlines are part of multi-line strings to consume them so they are counted towards the token length
-            if (self.consume()) |byte| {
-                switch (byte) {
-                    '\r' => {
-                        if (self.consume().? != '\n') return error.CarriageReturnError;
-                        end_is_crlf = true;
+                // TODO: add transition table comment
+                .DotOrRange => switch (self.state_stage) {
+                    0 => { // dot 1
+                        if (self.consume().? != '.') return error.UnexpectedDotOrRangeStage0Byte;
+                        // at this point, our token is technically a valid Dot token
+                        self.token.token_type = TokenType.Dot;
+                        self.tokenMaybeComplete();
+                        // go to the next stage to see if we actually have a Range token instead
+                        self.state_stage = 1;
                     },
-                    '\n' => end_is_crlf = false,
-                    else => unreachable,
-                }
-            }
-            self.consumeWhileBytes("\t ");
-            if ((self.peek() orelse 0) != '\\') {
-                break;
-            }
-        }
+                    1 => { // maybe dot 2
+                        switch (self.peek().?) {
+                            '.' => {
+                                _ = self.consume(); // consume the second dot
+                                self.token.token_type = TokenType.Range;
+                                self.tokenComplete();
+                                return self.token;
+                            },
+                            else => {
+                                self.tokenComplete();
+                                return self.token;
+                            },
+                        }
+                    },
+                    else => return error.UnexpectedDotOrRangeStage,
+                },
 
-        // the last newline is not part of the token
-        if (end_is_crlf) self.token.size -= 2 else self.token.size -= 1;
-    }
+                // TODO: add transition table comment
+                .QuotedString => switch (self.state_stage) {
+                    0 => { // starting quotation mark
+                        if (self.consume().? != '"') return error.UnexpectedCommonQuotedStringStage0Byte;
+                        self.state_stage = 1;
+                    },
+                    1 => if (self.consumeToBytes("\\\"")) |target| { // unescaped bytes or ending quotation mark
+                        switch (self.consume().?) { // consume the target byte
+                            '"' => {
+                                self.tokenComplete();
+                                return self.token;
+                            },
+                            '\\' => self.state_stage = 2, // consume the escape sequence from stage 3
+                            else => unreachable,
+                        }
+                    },
+                    2 => switch (try self.consumeEscapedByte()) { // escaped byte
+                        'u' => self.state_stage = 3,
+                        else => self.state_stage = 1,
+                    },
+                    3 => { // hex 1
+                        try self.consumeHex();
+                        self.state_stage = 4;
+                    },
+                    4 => { // hex 2
+                        try self.consumeHex();
+                        self.state_stage = 5;
+                    },
+                    5 => { // hex 3
+                        try self.consumeHex();
+                        self.state_stage = 6;
+                    },
+                    6 => { // hex 4
+                        try self.consumeHex();
+                        self.state_stage = 1;
+                    },
+                    else => return error.UnexpectedCommonQuotedStringStage,
+                },
 
-    fn commentOrBareString(self: *Self) !void {
-        if (self.peek().? != '/') return error.InvalidCommentOrBareString;
-        if ((self.peekNext() orelse 0) == '/') {
-            try self.comment();
-        } else {
-            try self.bareString();
-        }
-    }
+                // TODO: add transition table comment
+                .MacroKey => switch (self.state_stage) {
+                    0 => { // dollar sign
+                        if (self.consume().? != '$') return error.UnexpectedMacroKeyStage0Byte;
+                        self.state_stage = 1;
+                    },
+                    1 => switch (self.peek().?) { // start of quoted macro key or bare macro key
+                        '"' => self.state = State.QuotedString,
+                        else => self.state = State.BareString,
+                    },
+                    else => return error.UnexpectedMacroKeyStage,
+                },
 
-    fn numberOrBareString(self: *Self) !void {
-        self.token.token_type = TokenType.Number;
+                // TODO: add transition table comment
+                .BareString => {
+                    if (self.consumeToBytes(delimiters) != null) {
+                        self.tokenComplete();
+                        return self.token;
+                    }
+                    // we've reached the end of the buffer without knowing if we've completed this bare string token,
+                    // however, bare strings are technically valid all the way to EOF, so we mark it as such, but we
+                    // stay in this state in case there's more input and this bare string continues
+                    self.tokenMaybeComplete();
+                },
 
-        switch (self.consume().?) {
-            '0' => {
-                if (self.atDelimiterOrEof()) {
-                    return;
-                }
-            },
-            '1'...'9' => {
-                self.consumeWhileInRange('0', '9');
-                if (self.atDelimiterOrEof()) {
-                    return;
-                }
-            },
-            else => return error.InvalidNumberOrBareString,
-        }
-        try self.bareString();
-    }
+                // TODO: add transition table comment
+                .MultiLineString => switch (self.state_stage) {
+                    0 => { // first reverse solidus
+                        if (self.consume().? != '\\') return error.UnexpectedMultiLineStringStage0Byte;
+                        self.state_stage = 1;
+                    },
+                    1 => { // second reverse solidus
+                        if (self.consume().? != '\\') return error.UnexpectedMultiLineStringStage1Byte;
+                        self.state_stage = 2;
+                        //    ex -> key = \\<EOF>
+                        //          ^     ^ ^...multi-line string end + file end
+                        //          |     |...multi-line string start
+                        //          |...file start
+                        self.tokenMaybeComplete();
+                    },
+                    2 => if (self.consumeToBytes("\r\n")) |target| { // all bytes to (and including) end of line
+                        switch (self.advance().?) { // don't consume the newline yet
+                            '\r' => {
+                                self.crlf = true;
+                                self.state_stage = 3;
+                                self.tokenNotComplete();
+                            },
+                            '\n' => {
+                                self.crlf = false;
+                                self.state_stage = 4;
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    3 => { // ending linefeed for CRLF
+                        if (self.advance().? != '\n') return error.UnexpectedMultiLineStringStage3Byte;
+                        self.state_stage = 4;
+                        self.tokenMaybeComplete();
+                    },
+                    4 => { // leading white space
+                        // TODO: Should we keep the leading white space as part of the token?
+                        if (self.consumeWhileBytes("\t ") != null) {
+                            self.state_stage = 5;
+                        }
+                    },
+                    5 => switch (self.peek().?) { // next multi-line string or end of multi-line string
+                        '\\' => {
+                            self.state_stage = 0;
+                            // since we're continuing this multi-line string on the next line, count the previous
+                            // newline as part of this string
+                            self.token.size += @as(usize, if (self.crlf) 2 else 1);
+                        },
+                        else => {
+                            self.tokenComplete();
+                            return self.token;
+                        }
+                    },
+                    else => return error.UnexpectedMultiLineStringStage,
+                },
 
-    // ---- Basic Token Generators
+                // TODO: add transition table comment
+                .BareStringOrComment => switch (self.state_stage) {
+                    0 => {
+                        if (self.consume().? != '/') return error.UnexpectedBareStringOrCommentStage0Byte;
+                        self.state_stage = 1;
+                        // so far, this is a valid bare string
+                        self.token.token_type = TokenType.String;
+                        self.tokenMaybeComplete();
+                    },
+                    1 => {
+                        switch (self.peek().?) {
+                            '/' => {
+                                self.token.token_type = TokenType.Comment;
+                                self.state_stage = 2;
+                            },
+                            else => {
+                                self.state = State.BareString;
+                            },
+                        }
+                    },
+                    2 => if (self.consumeToBytes("\r\n") != null) {
+                        self.tokenComplete();
+                        return self.token;
+                    },
+                    else => return error.UnexpectedBareStringOrCommentStage,
+                },
 
-    fn eofToken(self: *Self) Token {
-        self.token.offset = self.input_cursor;
-        self.token.size = 0;
-        self.token.token_type = TokenType.Eof;
+                // TODO: add transition table comment
+                .NumberOrBareString => switch (self.state_stage) {
+                    0 => { // first number
+                        switch (self.consume().?) {
+                            '0' => self.state_stage = 2,
+                            '1'...'9' => self.state_stage = 1,
+                            else => unreachable,
+                        }
+                        // so far, this is a valid number
+                        self.token.token_type = TokenType.Number;
+                        self.tokenMaybeComplete();
+                    },
+                    1 => if (self.consumeWhileInRange('0', '9') != null) { // multi-digit number
+                        self.state_stage = 2;
+                    },
+                    2 => { // end of number or finish with bare string
+                        if (self.atDelimiterOrEof()) {
+                            self.tokenComplete();
+                            return self.token;
+                        } else {
+                            self.token.token_type = TokenType.String;
+                            self.state = State.BareString;
+                        }
+                    },
+                    else => return error.UnexpectedNumberOrBareStringStage,
+                },
+            } // end state switch
+        } // end :loop
+
+        std.log.info("Buffer depleted!", .{});
         return self.token;
     }
 
     // ---- Scanning Operations
 
+    /// Returns the byte currently pointed to by the buffer cursor. If the buffer cursor points to
+    /// the end of the buffer, then `null` is returned.
     fn peek(self: Self) ?u8 {
-        if (self.input_cursor == self.input.len) {
+        if (self.at_end_of_buffer) {
             return null;
         }
-        return self.input[self.input_cursor];
+        return self.buffer[self.buffer_cursor];
     }
 
-    fn peekNext(self: Self) ?u8 {
-        if (self.input_cursor + 1 >= self.input.len) {
-            return null;
-        }
-        return self.input[self.input_cursor + 1];
-    }
-
+    /// Advances the buffer cursor to the next byte, and returns the byte that the cursor previously
+    /// pointed to. This also increments the current line if the byte returned is `\n`. If the input
+    /// cursor already points to the end of the buffer, then `null` is returned.
     fn advance(self: *Self) ?u8 {
-        if (self.input_cursor == self.input.len) {
+        if (self.at_end_of_buffer) {
             return null;
         }
-        self.input_cursor += 1;
-        const byte = self.input[self.input_cursor - 1];
+        self.buffer_cursor += 1;
+        self.at_end_of_buffer = self.buffer_cursor == self.buffer.len;
+        const byte = self.buffer[self.buffer_cursor - 1];
         if (byte == '\n') self.current_line += 1;
         return byte;
     }
 
-    /// Consumes the current buffer byte (pointed to by the buffer cursor), which (in essence)
-    /// adds it to the current token. If the buffer is depleted then this returns `null`
-    /// otherwise it returns the consumed byte.
+    /// Advances the buffer cursor to the next byte, saves and adds the byte previously pointed to
+    /// by the buffer cursor to the token size (i.e. consumes it), and returns that previous byte.
+    /// If the buffer cursor already pointed to the end of the buffer, then `null` is returned.
     fn consume(self: *Self) ?u8 {
         if (self.advance()) |byte| {
             self.token.size += 1;
@@ -352,25 +482,26 @@ pub const Tokenizer = struct {
         return null;
     }
 
-    /// Move the buffer cursor forward until one of the target bytes is found. All bytes leading
-    /// to the discovered target byte will be consumed, but that target byte will not be
-    /// consumed. If we can't find any of the target bytes, we return `false` otherwise we
-    /// return `true`.
-    fn consumeToBytes(self: *Self, targets_: []const u8) bool {
+    /// Consume all bytes until one of the target bytes is found, and return that target byte. If
+    /// the buffer cursor points to the end of the buffer, this returns `null`.
+    fn consumeToBytes(self: *Self, targets_: []const u8) ?u8 {
         while (self.peek()) |byte| {
             for (targets_) |target| {
                 if (byte == target) {
-                    return true;
+                    return byte;
                 }
             }
             _ = self.consume();
         }
 
-        // We didn't find any of the target bytes.
-        return false;
+        // We didn't find any of the target bytes, and we've exhausted the buffer.
+        return null;
     }
 
-    fn consumeWhileBytes(self: *Self, targets_: []const u8) void {
+    /// Consumes all bytes while they match one of the given targets, and return the first byte that
+    /// does not match a target. If the buffer cursor points to the end of the buffer, this returns
+    /// `null`.
+    fn consumeWhileBytes(self: *Self, targets_: []const u8) ?u8 {
         peekloop: while (self.peek()) |byte| {
             for (targets_) |target| {
                 if (byte == target) {
@@ -379,42 +510,38 @@ pub const Tokenizer = struct {
                 }
             }
             // The byte we're looking at did not match any target, so return.
-            return;
+            return byte;
         }
+        return null; // we've exhausted the buffer
     }
 
     /// Move the buffer cursor forward while it points to any byte in the specified, inclusive
     /// range. All bytes scanned are consumed, while the final byte (which is not within the
     /// specified range) is not.
-    fn consumeWhileInRange(self: *Self, lo_: u8, hi_: u8) void {
+    fn consumeWhileInRange(self: *Self, lo_: u8, hi_: u8) ?u8 {
         peekloop: while (self.peek()) |byte| {
             if (byte >= lo_ and byte <= hi_) {
                 _ = self.consume();
                 continue :peekloop;
             }
             // The current byte is not in the specified range, so we stop here.
-            return;
+            return byte;
         }
+        return null; // we've exhausted the buffer
     }
 
-    fn consumeEscapeSequence(self: *Self) !void {
-        if (self.consume().? != '\\') return error.InvalidEscapeSequence;
+    /// Consumes (and returns) the next byte and expects it to be a valid escaped byte.
+    fn consumeEscapedByte(self: *Self) !u8 {
         if (self.consume()) |byte| {
             switch (byte) {
-                '\"', '\\', 'b', 'f', 'n', 'r', 't' => return,
-                'u' => {
-                    try self.consumeHex();
-                    try self.consumeHex();
-                    try self.consumeHex();
-                    try self.consumeHex();
-                    return;
-                },
-                else => return error.InvalidEscapeSequence,
+                'b', 'f', 'n', 'r', 't', 'u', '\\', '\"' => return byte,
+                else => return error.InvalidEscapedByte,
             }
         }
-        return error.InvalidEscapeSequence;
+        return error.InvalidEscapedByte;
     }
 
+    /// Consumes the next byte and expects it to be a valid HEX character.
     fn consumeHex(self: *Self) !void {
         if (self.consume()) |byte| {
             switch (byte) {
@@ -425,23 +552,11 @@ pub const Tokenizer = struct {
         return error.InvalidHex;
     }
 
-    /// Move the buffer cursor forward while one of the target bytes is found.
-    fn skipWhileBytes(self: *Self, targets_: []const u8) void {
-        peekloop: while (self.peek()) |byte| {
-            for (targets_) |target| {
-                if (byte == target) {
-                    _ = self.advance();
-                    continue :peekloop;
-                }
-            }
-            // The byte we're looking at did not match any target, so return.
-            return;
-        }
-    }
-
-    /// Advance the scanner until the start of a token is found. If more than one comma is
-    /// encountered while skipping separators, error.TooManyCommas error is returned.
-    fn skipSeparators(self: *Self) !void {
+    /// Advances the buffer cursor until a non-separator byte is encountered and returns `true`. If
+    /// no non-separator is encountered, this returns `false`. If more than one comma is encountered
+    /// then `error.TooManyCommas` is returned. If an invalid CRLF is encountered then
+    /// `error.CarriageReturnError` is returned.
+    fn skipSeparators(self: *Self) !bool {
         var found_comma = false;
         while (self.peek()) |byte| {
             switch (byte) {
@@ -463,13 +578,14 @@ pub const Tokenizer = struct {
                     found_comma = true;
                     _ = self.advance();
                 },
-                else => return,
+                else => return true,
             }
         }
+        return false;
     }
 
     fn atDelimiterOrEof(self: *Self) bool {
-        const byte = self.peek() orelse return true; // EOF is fine
+        const byte = self.peek() orelse return true;
         // check for delimiters
         for (delimiters) |d| {
             if (byte == d) {
@@ -494,24 +610,24 @@ const test_allocator = testing.allocator;
 /// A structure describing the expected token.
 const ExpectedToken = struct {
     str: []const u8,
+    // most tests will have a single buffer, so make that the default
+    start_buffer: usize = 0,
+    end_buffer: usize = 0,
     line: usize,
     token_type: TokenType,
-    // TODO: figure out a way to allow this to fail (like a pass/fail flag)
+    // most tests should expect the token to be valid, so make that the default
+    is_valid: bool = true,
 };
 
 fn expectToken(expected_token_: ExpectedToken, token_: Token, orig_str_: []const u8) !void {
+    const str = try token_.slice(orig_str_);
     var ok = true;
+    testing.expectEqualStrings(expected_token_.str, str) catch { ok = false; };
+    testing.expectEqual(expected_token_.start_buffer, token_.start_buffer) catch { ok = false; };
+    testing.expectEqual(expected_token_.end_buffer, token_.end_buffer) catch { ok = false; };
     testing.expectEqual(expected_token_.line, token_.line) catch { ok = false; };
     testing.expectEqual(expected_token_.token_type, token_.token_type) catch { ok = false; };
-    if (token_.token_type == TokenType.Eof) {
-        testing.expectEqual(orig_str_.len, token_.offset) catch { ok = false; };
-        testing.expectEqual(@as(u64, 0), token_.size) catch { ok = false; };
-
-        // also make sure our test token is correct just to make sure
-        testing.expectEqualSlices(u8, "", expected_token_.str) catch { ok = false; };
-    }
-    const actual = try token_.slice(orig_str_);
-    testing.expectEqualStrings(expected_token_.str, actual) catch { ok = false; };
+    testing.expectEqual(expected_token_.is_valid, token_.is_valid) catch { ok = false; };
 
     if (!ok) {
         return error.TokenTestFailure;
@@ -541,7 +657,6 @@ test "simple comment" {
     const str = "// this is a comment";
     const expected_tokens = [_]ExpectedToken{
         ExpectedToken{ .str = str, .line = 1, .token_type = TokenType.Comment },
-        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -584,7 +699,6 @@ test "bare strings" {
         ExpectedToken{ .str = "strings", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "01abc", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "123xyz", .line = 2, .token_type = TokenType.String },
-        ExpectedToken{ .str = "", .line = 2, .token_type = TokenType.Eof },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -593,7 +707,6 @@ test "quoted string" {
     const str = "\"this is a \\\"quoted\\\" string\\u1234 \\t\\r\\n$(){}[].,=\"";
     const expected_tokens = [_]ExpectedToken{
         ExpectedToken{ .str = str, .line = 1, .token_type = TokenType.String },
-        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -636,7 +749,6 @@ test "simple macro declaration" {
         ExpectedToken{ .str = "$name", .line = 1, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "\"Zooce Dark\"", .line = 1, .token_type = TokenType.String },
-        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -655,7 +767,6 @@ test "macro object declaration" {
         ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "#2b2b2b", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "}", .line = 3, .token_type = TokenType.CloseCurly },
-        ExpectedToken{ .str = "", .line = 3, .token_type = TokenType.Eof },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -676,7 +787,6 @@ test "macro array declaration" {
         ExpectedToken{ .str = "8001", .line = 1, .token_type = TokenType.Number },
         ExpectedToken{ .str = "8002", .line = 1, .token_type = TokenType.Number },
         ExpectedToken{ .str = "]", .line = 1, .token_type = TokenType.CloseSquare },
-        ExpectedToken{ .str = "", .line = 1, .token_type = TokenType.Eof },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -703,7 +813,6 @@ test "macro with parameters declaration" {
         ExpectedToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "$settings", .line = 3, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "}", .line = 4, .token_type = TokenType.CloseCurly },
-        ExpectedToken{ .str = "", .line = 4, .token_type = TokenType.Eof },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -724,6 +833,55 @@ test "number-number kv-pair" {
         ExpectedToken{ .str = "123", .line = 1, .token_type = TokenType.Number },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "456", .line = 1, .token_type = TokenType.Number },
+    };
+    try doTokenTest(str, &expected_tokens);
+}
+
+// Multi-Line String Tests
+
+test "basic multi-line string" {
+    const str =
+        \\\\line one
+        \\\\line two
+        \\\\line three
+        \\
+    ;
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = \\\\line one
+                              \\\\line two
+                              \\\\line three
+                       , .line = 1, .token_type = TokenType.MultiLineString },
+    };
+    try doTokenTest(str, &expected_tokens);
+}
+
+test "multi-line string with leading space" {
+    const str =
+        \\ \\line one
+        \\  \\line two
+        \\          \\line three
+        \\
+    ;
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = \\\\line one
+                              \\  \\line two
+                              \\          \\line three
+                       , .line = 1, .token_type = TokenType.MultiLineString },
+    };
+    try doTokenTest(str, &expected_tokens);
+}
+
+test "multi-line string at EOF" {
+    const str =
+        \\\\line one
+        \\\\line two
+        \\\\line three
+    ;
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = \\\\line one
+                              \\\\line two
+                              \\\\line three
+                       , .line = 1, .token_type = TokenType.MultiLineString },
     };
     try doTokenTest(str, &expected_tokens);
 }
