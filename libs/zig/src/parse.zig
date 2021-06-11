@@ -23,11 +23,12 @@ pub const Zomb = struct {
     }
 };
 
+pub const max_stack_size = 64; // this is fairly reasonable (add more stacks if we need more?)
+
 pub const Parser = struct {
     const Self = @This();
 
     const stack_shift = 2; // 2 bits per stack element
-    const max_stack_size = 64; // this is fairly reasonable (add more stacks if we need more?)
 
     // stack elements
     //  HEX value combinations ref:
@@ -140,19 +141,22 @@ pub const Parser = struct {
                 //     -   MacroKey         >> MacroDecl
                 //         String or Number >> KvPair
                 //         else             >> error
-                .Decl => switch (token.token_type) {
-                    .MacroKey => {
-                        // TODO: properly implement macro decls
-                        self.macro_decl = true;
-                        self.state = State.MacroDecl;
-                    },
-                    .String, .Number => {
-                        self.macro_decl = false;
-                        const key = try token.slice(self.input);
-                        try self.stackPush(ZombType{ .String = key });
-                        self.state = State.KvPair;
-                    },
-                    else => return error.UnexpectedDeclToken,
+                .Decl => {
+                    self.state_stage = 0;
+                    switch (token.token_type) {
+                        .MacroKey => {
+                            // TODO: properly implement macro decls
+                            self.macro_decl = true;
+                            self.state = State.MacroDecl;
+                        },
+                        .String, .Number => {
+                            self.macro_decl = false;
+                            const key = try token.slice(self.input);
+                            try self.stackPush(ZombType{ .String = key });
+                            self.state = State.KvPair;
+                        },
+                        else => return error.UnexpectedDeclToken,
+                    }
                 },
 
                 // stage   expected tokens  >> next stage/state
@@ -181,10 +185,7 @@ pub const Parser = struct {
                         else => return error.UnexpectedMacroDeclStage0Token,
                     },
                     1 => switch (token.token_type) { // parameters
-                        .String, .Number => {
-                            // var zomb_macro = self.macros.get(self.cur_macro_decl_key).?;
-                            // try zomb_macro.parameter_names.append(try token.slice(self.input));
-                        },
+                        .String, .Number => {},
                         .CloseParen => self.state_stage = 2,
                         else => return error.UnexpectedMacroDeclStage1Token,
                     },
@@ -197,7 +198,6 @@ pub const Parser = struct {
                             // const val = try token.slice(self.input);
                             // try self.stackConsumeKvPair(ZombType{ .String = val });
 
-                            self.state_stage = 0;
                             self.state = State.Decl;
                         },
                         .MacroKey => {

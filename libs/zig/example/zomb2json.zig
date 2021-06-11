@@ -11,8 +11,8 @@ const zomb = @import("zomb");
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = &gpa.allocator;
-    var file_contents = std.ArrayList(u8).init(alloc);
-    defer file_contents.deinit();
+    var input_file_contents = std.ArrayList(u8).init(alloc);
+    defer input_file_contents.deinit();
 
     {
         const args = try std.process.argsAlloc(alloc);
@@ -26,15 +26,56 @@ pub fn main() anyerror!void {
 
         const max_file_size = if (args.len >= 3) try std.fmt.parseUnsigned(usize, args[2], 10) else 100_000_000;
 
-        try file.reader().readAllArrayList(&file_contents, max_file_size);
+        try file.reader().readAllArrayList(&input_file_contents, max_file_size);
     }
 
-    var zomb_parser = zomb.Parser.init(file_contents.items, alloc);
+    var zomb_parser = zomb.Parser.init(input_file_contents.items, std.heap.page_allocator);
     defer zomb_parser.deinit();
 
     const z = try zomb_parser.parse();
     defer z.deinit();
 
-    // TODO: const zomb_file = zomb_parser.parse();
-    // TODO: convert `zomb_file` to a JSON file
+    var output_file = try std.fs.cwd().createFile("zomb.json", .{});
+    defer output_file.close();
+
+    var jsonWriter = json.writeStream(output_file.writer(), zomb.max_nested_depth);
+    jsonWriter.whitespace = json.StringifyOptions.Whitespace{};
+
+    try zombValueToJson(z.map, &jsonWriter);
+}
+
+fn zombValueToJson(value_: zomb.ZombType, jw_: anytype) anyerror!void {
+    switch (value_) {
+        .Object => |inner| {
+            try jw_.beginObject();
+
+            var iter = inner.iterator();
+            while (iter.next()) |entry| {
+                const key = entry.key_ptr.*;
+                try jw_.objectField(key);
+
+                const val = entry.value_ptr.*;
+                try zombValueToJson(val, jw_);
+            }
+
+            try jw_.endObject();
+        },
+        .Array => |inner| {
+            try jw_.beginArray();
+
+            for (inner.items) |item| {
+                try jw_.arrayElem();
+                try zombValueToJson(item, jw_);
+            }
+
+            try jw_.endArray();
+        },
+        .String => |inner| {
+            try jw_.emitString(inner);
+        },
+        .Empty => {
+            // TODO: this will be whatever the macro-use evaluates to
+            try jw_.emitString("MACRO-USE");
+        },
+    }
 }

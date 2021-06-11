@@ -13,6 +13,8 @@ pub const ZombTypeMap = parse.ZombTypeMap;
 pub const ZombTypeArray = parse.ZombTypeArray;
 pub const Zomb = parse.Zomb;
 
+pub const max_nested_depth = parse.max_stack_size;
+
 
 pub const StringReader = @import("string_reader.zig").StringReader;
 
