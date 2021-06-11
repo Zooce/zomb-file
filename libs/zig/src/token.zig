@@ -100,19 +100,12 @@ pub const Token = struct {
     /// The type of this token (duh)
     token_type: TokenType = TokenType.None,
 
-    escaped_type: EscapedType = EscapedType.None,
-
     /// Whether this token is a valid ZOMB token.
     is_valid: bool = false,
 
     // TODO: is_partial: bool = false, // token is valid, but ended at the EOF
 
     const Self = @This();
-    pub const EscapedType = enum {
-        None,
-        Quoted, // this token is surrounded with quotation marks
-        MultiLine, // this token has double reverse solidus delimiters and possibly leading white space
-    };
 
     /// Given the original input, return the slice of that input which this token represents.
     pub fn slice(self: Self, buffer_: []const u8) ![]const u8 {
@@ -125,23 +118,7 @@ pub const Token = struct {
         if (self.offset + self.size > buffer_.len) {
             return error.TokenSizeTooBig;
         }
-        switch (self.escaped_type) {
-            .None => {
-                const start = switch (self.token_type) {
-                    .MacroKey => self.offset + 1,
-                    else => self.offset,
-                };
-                return buffer_[start..self.offset + self.size];
-            },
-            .Quoted => {
-                const start = switch (self.token_type) {
-                    .MacroKey => self.offset + 2,
-                    else => self.offset + 1,
-                };
-                return buffer_[start..self.offset + self.size - 1];
-            },
-            .MultiLine => return buffer_[self.offset + 2..self.offset + self.size],
-        }
+        return buffer_[self.offset..self.offset + self.size];
     }
 };
 
@@ -296,17 +273,21 @@ pub const Tokenizer = struct {
                 // TODO: add transition table comment
                 .QuotedString => switch (self.state_stage) {
                     0 => { // starting quotation mark
-                        if (self.consume().? != '"') return error.UnexpectedCommonQuotedStringStage0Byte;
-                        self.token.escaped_type = Token.EscapedType.Quoted;
+                        if (self.advance().? != '"') return error.UnexpectedCommonQuotedStringStage0Byte;
+                        self.token.offset = self.buffer_cursor;
                         self.state_stage = 1;
                     },
                     1 => if (self.consumeToBytes("\\\"")) |target| { // non-escaped bytes or ending quotation mark
-                        switch (self.consume().?) { // consume the target byte
+                        switch (self.peek().?) {
                             '"' => {
+                                _ = self.advance();
                                 self.tokenComplete();
                                 return self.token;
                             },
-                            '\\' => self.state_stage = 2, // consume the escape sequence from stage 3
+                            '\\' => {
+                                _ = self.consume();
+                                self.state_stage = 2; // consume the escape sequence from stage 3
+                            },
                             else => unreachable,
                         }
                     },
@@ -336,7 +317,8 @@ pub const Tokenizer = struct {
                 // TODO: add transition table comment
                 .MacroKey => switch (self.state_stage) {
                     0 => { // dollar sign
-                        if (self.consume().? != '$') return error.UnexpectedMacroKeyStage0Byte;
+                        if (self.advance().? != '$') return error.UnexpectedMacroKeyStage0Byte;
+                        self.token.offset = self.buffer_cursor;
                         self.state_stage = 1;
                     },
                     1 => switch (self.peek().?) { // start of quoted macro key or bare macro key
@@ -364,6 +346,12 @@ pub const Tokenizer = struct {
                 // TODO: add transition table comment
                 .MultiLineString => switch (self.state_stage) {
                     0 => { // first reverse solidus
+                        if (self.advance().? != '\\') return error.UnexpectedMultiLineStringStage0Byte;
+                        self.state_stage = 1;
+                    },
+                    1 => { // second reverse solidus
+                        if (self.advance().? != '\\') return error.UnexpectedMultiLineStringStage1Byte;
+
                         // we may be continuing a multi-line string and since multi-line string tokens are broken into
                         // their individual lines (for parsing reasons) we need to make sure this is a new token and not
                         // a continuation of the previous one
@@ -372,21 +360,15 @@ pub const Tokenizer = struct {
                             .line = self.current_line,
                             .start_buffer = self.buffer_index,
                             .token_type = TokenType.MultiLineString,
-                            .escaped_type = Token.EscapedType.MultiLine,
                         };
 
-                        if (self.consume().? != '\\') return error.UnexpectedMultiLineStringStage0Byte;
-                        self.state_stage = 1;
-                    },
-                    1 => { // second reverse solidus
-                        if (self.consume().? != '\\') return error.UnexpectedMultiLineStringStage1Byte;
-                        self.state_stage = 2;
                         //    ex -> key = \\this is the rest of the string<EOF>
                         //          ^      ^^                             ^...multi-line string end + file end
                         //          |      ||...start of buffer 2 + start of multi-line string
                         //          |      |...end of buffer 1
                         //          |...file start + start of buffer 1
                         self.tokenMaybeComplete();
+                        self.state_stage = 2;
                     },
                     2 => if (self.consumeToBytes("\r\n")) |target| { // all bytes to (and including) end of line
                         switch (self.advance().?) { // don't consume the newline yet

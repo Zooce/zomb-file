@@ -46,10 +46,10 @@ pub fn main() anyerror!void {
 
 fn zombValueToJson(value_: zomb.ZombType, jw_: anytype) anyerror!void {
     switch (value_) {
-        .Object => |inner| {
+        .Object => |hash_map| {
             try jw_.beginObject();
 
-            var iter = inner.iterator();
+            var iter = hash_map.iterator();
             while (iter.next()) |entry| {
                 const key = entry.key_ptr.*;
                 try jw_.objectField(key);
@@ -60,18 +60,18 @@ fn zombValueToJson(value_: zomb.ZombType, jw_: anytype) anyerror!void {
 
             try jw_.endObject();
         },
-        .Array => |inner| {
+        .Array => |array_list| {
             try jw_.beginArray();
 
-            for (inner.items) |item| {
+            for (array_list.items) |item| {
                 try jw_.arrayElem();
                 try zombValueToJson(item, jw_);
             }
 
             try jw_.endArray();
         },
-        .String => |inner| {
-            try jw_.emitString(inner);
+        .String => |slice| {
+            try jw_.emitString(slice);
         },
         .Empty => {
             // TODO: this will be whatever the macro-use evaluates to
