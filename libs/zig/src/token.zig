@@ -6,7 +6,6 @@ const TokenDelimiter = enum(u8) {
     OpenParen = '(', // 0x28  40
     CloseParen = ')', // 0x29  41
     Comma = ',', // 0x2C  44
-    Dot = '.', // 0x2E  46
     Equals = '=', // 0x3D  61
     OpenSquare = '[', // 0x5B  91
     CloseSquare = ']', // 0x5D  93
@@ -20,8 +19,10 @@ const NonTokenDelimiter = enum(u8) {
     LineFeed = '\n', // 0x0A  10
     CarriageReturn = '\r', // 0x0D  13
     Space = ' ', // 0x20  32
-    Quote = '"', // 0x22  24
+    Quote = '"', // 0x22  34
     Dollar = '$', // 0x24  36
+    Percent = '%', // 0x25  37
+    Dot = '.', // 0x2E  46
     ReverseSolidus = '\\', // 0x5C  92
 };
 
@@ -56,13 +57,13 @@ const delimiters = blk: {
 /// Special token types (usually a combination of Delimiters)
 const SpecialToken = enum(u8) {
     None = 0,
-    Range,
     Newline,
     Comment,
     String,
-    Number,
     MultiLineString,
     MacroKey,
+    MacroParamKey,
+    MacroAccessor, // stretch-goal?
 };
 
 pub const TokenType = @Type(out: {
@@ -128,13 +129,11 @@ pub const Tokenizer = struct {
 
     const State = enum {
         None,
-        DotOrRange,
         QuotedString,
-        MacroKey,
+        MacroX,
         BareString,
         MultiLineString,
         BareStringOrComment,
-        NumberOrBareString,
     };
 
     state: State = State.None,
@@ -211,14 +210,21 @@ pub const Tokenizer = struct {
                     const byte = self.peek().?;
                     const byte_as_delimiter = std.meta.intToEnum(Delimiter, byte) catch Delimiter.None;
                     switch (byte_as_delimiter) {
-                        .Dot => self.state = State.DotOrRange,
                         .Quote => {
                             self.token.token_type = TokenType.String;
                             self.state = State.QuotedString;
                         },
                         .Dollar => {
                             self.token.token_type = TokenType.MacroKey;
-                            self.state = State.MacroKey;
+                            self.state = State.MacroX;
+                        },
+                        .Percent => {
+                            self.token.token_type = TokenType.MacroParamKey;
+                            self.state = State.MacroX;
+                        },
+                        .Dot => {
+                            self.token.token_type = TokenType.MacroAccessor;
+                            self.state = State.MacroX;
                         },
                         .ReverseSolidus => {
                             self.state = State.MultiLineString;
@@ -227,7 +233,6 @@ pub const Tokenizer = struct {
                             switch (byte) {
                                 0x00...0x1F => return error.InvalidControlCharacter,
                                 '/' => self.state = State.BareStringOrComment,
-                                '0'...'9' => self.state = State.NumberOrBareString,
                                 else => {
                                     self.token.token_type = TokenType.String;
                                     self.state = State.BareString;
@@ -241,33 +246,6 @@ pub const Tokenizer = struct {
                             return self.token;
                         },
                     }
-                },
-
-                // TODO: add transition table comment
-                .DotOrRange => switch (self.state_stage) {
-                    0 => { // dot 1
-                        if (self.consume().? != '.') return error.UnexpectedDotOrRangeStage0Byte;
-                        // at this point, our token is technically a valid Dot token
-                        self.token.token_type = TokenType.Dot;
-                        self.tokenMaybeComplete();
-                        // go to the next stage to see if we actually have a Range token instead
-                        self.state_stage = 1;
-                    },
-                    1 => { // maybe dot 2
-                        switch (self.peek().?) {
-                            '.' => {
-                                _ = self.consume(); // consume the second dot
-                                self.token.token_type = TokenType.Range;
-                                self.tokenComplete();
-                                return self.token;
-                            },
-                            else => {
-                                self.tokenComplete();
-                                return self.token;
-                            },
-                        }
-                    },
-                    else => return error.UnexpectedDotOrRangeStage,
                 },
 
                 // TODO: add transition table comment
@@ -315,20 +293,24 @@ pub const Tokenizer = struct {
                 },
 
                 // TODO: add transition table comment
-                .MacroKey => switch (self.state_stage) {
-                    0 => { // dollar sign
-                        if (self.advance().? != '$') return error.UnexpectedMacroKeyStage0Byte;
-                        self.token.offset = self.buffer_cursor;
-                        self.state_stage = 1;
+                .MacroX => switch (self.state_stage) {
+                    0 => {
+                        switch (self.advance().?) {
+                            '$', '%', '.' => {
+                                self.token.offset = self.buffer_cursor;
+                                self.state_stage = 1;
+                            },
+                            else => return error.UnexpectedMacroXStage0Byte,
+                        }
                     },
-                    1 => switch (self.peek().?) { // start of quoted macro key or bare macro key
+                    1 => switch (self.peek().?) {
                         '"' => {
                             self.state_stage = 0;
                             self.state = State.QuotedString;
                         },
                         else => self.state = State.BareString,
                     },
-                    else => return error.UnexpectedMacroKeyStage,
+                    else => return error.UnexpectedMacroXStage,
                 },
 
                 // TODO: add transition table comment
@@ -437,33 +419,6 @@ pub const Tokenizer = struct {
                     },
                     else => return error.UnexpectedBareStringOrCommentStage,
                 },
-
-                // TODO: add transition table comment
-                .NumberOrBareString => switch (self.state_stage) {
-                    0 => { // first number
-                        switch (self.consume().?) {
-                            '0' => self.state_stage = 2,
-                            '1'...'9' => self.state_stage = 1,
-                            else => unreachable,
-                        }
-                        // so far, this is a valid number
-                        self.token.token_type = TokenType.Number;
-                        self.tokenMaybeComplete();
-                    },
-                    1 => if (self.consumeWhileInRange('0', '9') != null) { // multi-digit number
-                        self.state_stage = 2;
-                    },
-                    2 => { // end of number or finish with bare string
-                        if (self.atDelimiterOrEof()) {
-                            self.tokenComplete();
-                            return self.token;
-                        } else {
-                            self.token.token_type = TokenType.String;
-                            self.state = State.BareString;
-                        }
-                    },
-                    else => return error.UnexpectedNumberOrBareStringStage,
-                },
             } // end state switch
         } // end :loop
 
@@ -552,21 +507,6 @@ pub const Tokenizer = struct {
                 }
             }
             // The byte we're looking at did not match any target, so return.
-            return byte;
-        }
-        return null; // we've exhausted the buffer
-    }
-
-    /// Move the buffer cursor forward while it points to any byte in the specified, inclusive
-    /// range. All bytes scanned are consumed, while the final byte (which is not within the
-    /// specified range) is not.
-    fn consumeWhileInRange(self: *Self, lo_: u8, hi_: u8) ?u8 {
-        peekloop: while (self.peek()) |byte| {
-            if (byte >= lo_ and byte <= hi_) {
-                _ = self.consume();
-                continue :peekloop;
-            }
-            // The current byte is not in the specified range, so we stop here.
             return byte;
         }
         return null; // we've exhausted the buffer
@@ -729,18 +669,19 @@ test "comment at end of line" {
 
 test "bare strings" {
     // IMPORTANT - this string is only for testing - it is not a valid zombie-file string
-    const str = "I am.a,bunch{of\nstrings 01abc 123xyz";
+    const str = "I am.a,bunch{of\nstrings 01abc 123xyz=%d";
     const expected_tokens = [_]ExpectedToken{
         ExpectedToken{ .str = "I", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = "am", .line = 1, .token_type = TokenType.String },
-        ExpectedToken{ .str = ".", .line = 1, .token_type = TokenType.Dot },
-        ExpectedToken{ .str = "a", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "a", .line = 1, .token_type = TokenType.MacroAccessor },
         ExpectedToken{ .str = "bunch", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
         ExpectedToken{ .str = "of", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = "strings", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "01abc", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "123xyz", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = "d", .line = 2, .token_type = TokenType.MacroParamKey },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -749,35 +690,6 @@ test "quoted string" {
     const str = "\"this is a \\\"quoted\\\" string\\u1234 \\t\\r\\n$(){}[].,=\"";
     const expected_tokens = [_]ExpectedToken{
         ExpectedToken{ .str = str[1..str.len - 1], .line = 1, .token_type = TokenType.String },
-    };
-    try doTokenTest(str, &expected_tokens);
-}
-
-test "zeros" {
-    // IMPORTANT - this string is only for testing - it is not a valid zombie-file string
-    const str = "0 0\t0.0,0\r\n0\n0";
-    const expected_tokens = [_]ExpectedToken{
-        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = ".", .line = 1, .token_type = TokenType.Dot },
-        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "0", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "0", .line = 2, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "0", .line = 3, .token_type = TokenType.Number },
-    };
-    try doTokenTest(str, &expected_tokens);
-}
-
-test "numbers" {
-    // IMPORTANT - this string is only for testing - it is not a valid zombie-file string
-    const str = "123 1 0123 932 42d";
-    const expected_tokens = [_]ExpectedToken{
-        ExpectedToken{ .str = "123", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "1", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "0123", .line = 1, .token_type = TokenType.String },
-        ExpectedToken{ .str = "932", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "42d", .line = 1, .token_type = TokenType.String },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -826,9 +738,9 @@ test "macro array declaration" {
         ExpectedToken{ .str = "ports", .line = 1, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
         ExpectedToken{ .str = "[", .line = 1, .token_type = TokenType.OpenSquare },
-        ExpectedToken{ .str = "8000", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "8001", .line = 1, .token_type = TokenType.Number },
-        ExpectedToken{ .str = "8002", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "8000", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "8001", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "8002", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = "]", .line = 1, .token_type = TokenType.CloseSquare },
     };
     try doTokenTest(str, &expected_tokens);
@@ -837,8 +749,8 @@ test "macro array declaration" {
 test "macro with parameters declaration" {
     const str =
         \\$scope_def (scope settings) = {
-        \\    scope = $scope
-        \\    settings = $settings
+        \\    scope = %scope
+        \\    settings = %settings
         \\}
     ;
     const expected_tokens = [_]ExpectedToken{
@@ -851,10 +763,10 @@ test "macro with parameters declaration" {
         ExpectedToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
         ExpectedToken{ .str = "scope", .line = 2, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "scope", .line = 2, .token_type = TokenType.MacroKey },
+        ExpectedToken{ .str = "scope", .line = 2, .token_type = TokenType.MacroParamKey },
         ExpectedToken{ .str = "settings", .line = 3, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "settings", .line = 3, .token_type = TokenType.MacroKey },
+        ExpectedToken{ .str = "settings", .line = 3, .token_type = TokenType.MacroParamKey },
         ExpectedToken{ .str = "}", .line = 4, .token_type = TokenType.CloseCurly },
     };
     try doTokenTest(str, &expected_tokens);
@@ -864,14 +776,14 @@ test "quoted macro keys and parameters" {
     const str =
         \\$" ok = ." = 5
         \\$" = {\""(" = ") = {
-        \\    scope = $" = "
+        \\    scope = %" = "
         \\}
         \\
     ;
     const expected_tokens = [_]ExpectedToken{
         ExpectedToken{ .str = " ok = .", .line = 1, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "5", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "5", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = " = {\\\"", .line = 2, .token_type = TokenType.MacroKey },
         ExpectedToken{ .str = "(", .line = 2, .token_type = TokenType.OpenParen },
         ExpectedToken{ .str = " = ", .line = 2, .token_type = TokenType.String },
@@ -880,8 +792,34 @@ test "quoted macro keys and parameters" {
         ExpectedToken{ .str = "{", .line = 2, .token_type = TokenType.OpenCurly },
         ExpectedToken{ .str = "scope", .line = 3, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 3, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = " = ", .line = 3, .token_type = TokenType.MacroKey },
+        ExpectedToken{ .str = " = ", .line = 3, .token_type = TokenType.MacroParamKey },
         ExpectedToken{ .str = "}", .line = 4, .token_type = TokenType.CloseCurly },
+    };
+    try doTokenTest(str, &expected_tokens);
+}
+
+test "macro accessor" {
+    const str =
+        \\person = { name = Zooce,
+        \\    occupation = $job(a b c).occupations.0 }
+    ;
+    const expected_tokens = [_]ExpectedToken{
+        ExpectedToken{ .str = "person", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = "{", .line = 1, .token_type = TokenType.OpenCurly },
+        ExpectedToken{ .str = "name", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = "Zooce", .line = 1, .token_type = TokenType.String },
+        ExpectedToken{ .str = "occupation", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "=", .line = 2, .token_type = TokenType.Equals },
+        ExpectedToken{ .str = "job", .line = 2, .token_type = TokenType.MacroKey },
+        ExpectedToken{ .str = "(", .line = 2, .token_type = TokenType.OpenParen },
+        ExpectedToken{ .str = "a", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "b", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = "c", .line = 2, .token_type = TokenType.String },
+        ExpectedToken{ .str = ")", .line = 2, .token_type = TokenType.CloseParen },
+        ExpectedToken{ .str = "occupations", .line = 2, .token_type = TokenType.MacroAccessor },
+        ExpectedToken{ .str = "0", .line = 2, .token_type = TokenType.MacroAccessor },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -899,9 +837,9 @@ test "string-string kv-pair" {
 test "number-number kv-pair" {
     const str = "123 = 456";
     const expected_tokens = [_]ExpectedToken{
-        ExpectedToken{ .str = "123", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "123", .line = 1, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 1, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "456", .line = 1, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "456", .line = 1, .token_type = TokenType.String },
     };
     try doTokenTest(str, &expected_tokens);
 }
@@ -965,9 +903,9 @@ test "string-multi-line-string kv-pair" {
         ExpectedToken{ .str = "first line\n", .line = 1, .token_type = TokenType.MultiLineString },
         ExpectedToken{ .str = " second line\n", .line = 2, .token_type = TokenType.MultiLineString },
         ExpectedToken{ .str = "   third line", .line = 3, .token_type = TokenType.MultiLineString },
-        ExpectedToken{ .str = "123", .line = 4, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "123", .line = 4, .token_type = TokenType.String },
         ExpectedToken{ .str = "=", .line = 4, .token_type = TokenType.Equals },
-        ExpectedToken{ .str = "456", .line = 4, .token_type = TokenType.Number },
+        ExpectedToken{ .str = "456", .line = 4, .token_type = TokenType.String },
     };
     try doTokenTest(str, &expected_tokens);
 }

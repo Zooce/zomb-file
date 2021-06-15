@@ -24,10 +24,10 @@ decl
     ( kv-pair | macro-decl ) separator
 
 kv-pair %
-    key '=' value
+    string '=' value
 
 value
-    number | string | ml-string | object | array | macro-use
+    string | ml-string | object | array | macro-expr
 
 object %
     '{' ?list<kv-pair> '}'
@@ -35,32 +35,44 @@ object %
 array %
     '[' ?list<value> ']'
 
-macro-decl
-    macro-key ?macro-decl-params '=' value
 
-macro-key
-    '$' key
+macro-decl
+    macro-key ?macro-decl-params '=' macro-value
 
 macro-decl-params
-    '(' list<key> ')'
+    '(' list<string> ')'
 
-macro-use %
-    macro-key ?macro-use-params *key-accessor
+macro-value
+    parameter-accessor | string | ml-string | macro-object | macro-array | macro-macro-expr
 
-macro-use-params
+macro-object %
+    '{' ?list<macro-kv-pair> '}'
+
+macro-kv-pair
+    string '=' macro-value
+
+macro-array %
+    '[' ?list<macro-value> ']'
+
+parameter-accessor
+    '%' string
+
+macro-key
+    '$' string
+
+
+macro-expr %
+    macro-key ?macro-expr-params *key-accessor
+
+macro-expr-params
     '(' list<value> ')'
+
 
 list<type>
     <type> *( separator <type> ) ?separator
 
 key-accessor
-    '.' key | '[' inclusive-range ']'
-
-inclusive-range
-    ?number '..' ?number
-
-key
-    string | number
+    '.' string
 
 ml-string
     +( '\\' *( character | whitespace ) newline )
@@ -80,9 +92,6 @@ escaped-string
 character
     0x20...0x10FFFF
 
-number
-    0 | 1-9 ( 0-9 )*
-
 escape
     '"' | '\' | 'b' | 'f' | 'n' | 'r' | 't' | 'u' hex hex hex hex
 
@@ -96,6 +105,7 @@ delimiter
     ' '   // 0x20 .Space
     '"'   // 0x22 .Quote
     '$'   // 0x24 .Dollar
+    '%'   // 0x25 .Percent
     '('   // 0x28 .OpenParen
     ')'   // 0x29 .CloseParen
     ','   // 0x2C .Comma
@@ -128,18 +138,14 @@ comment
 .CloseCurly = '}'
 .CloseParen = ')'
 .CloseSquare = ']'
-.Comma = ','
-.Dollar = '$'
-.Dot = '.'
 .Equals = '='
 .OpenCurly = '{'
 .OpenParen = '('
 .OpenSquare = '['
 
-.Range = '..'
 .Comment = comment
 .Newline = newline
-.Number = number
 .String = string
-
-.Eof = end of the file
+.MacroKey = macro-key
+.MacroParamKey = parameter-accessor
+.MacroKeyAccessor = key-accessor

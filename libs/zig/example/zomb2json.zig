@@ -74,8 +74,8 @@ fn zombValueToJson(value_: zomb.ZombType, jw_: anytype) anyerror!void {
             try jw_.emitString(slice);
         },
         .Empty => {
-            // TODO: this will be whatever the macro-use evaluates to
-            try jw_.emitString("MACRO-USE");
+            // TODO: this will be whatever the macro-expr evaluates to
+            try jw_.emitString("MACRO-EXPR");
         },
     }
 }

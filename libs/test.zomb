@@ -17,17 +17,17 @@ $colors = {
 //           $scope_def(comment.line, $foreground($colors.red))
 //       ]
 $scope_def(scope, settings) = {
-    scope = $scope
-    settings = $settings
+    scope = %scope
+    settings = %settings
 }
 $foreground(value) = {
-    foreground = $value
+    foreground = %value
 }
 
 // Weird edge cases
 $" ok = ." = 5
 $" = {\""(" = ") = {
-    scope = $" = "
+    scope = %" = "
 }
 
 // Key-Value Pairs
@@ -60,11 +60,14 @@ multi-line-string = \\hello my friends
                     \\ what's up with this crazy
                     \\file format?"
 
+$one = Cool
 $m1(one two) = { // macro with paramters
-    hello = $one
+    hello = %one // use the value of the parameter
     goodbye = [ 42 // the answer
-        $two ]
+        %two ]
+    dude = $m2($one) // $one is another macro expr, not our parameter
 }
+$m2(a) = %a
 $"hi.dude" = this // macro without parameters
 // Did you notice you can have comments?
 cool = {
@@ -80,8 +83,8 @@ cool = {
                        \\}
                        \\$hi = this // hi there!
                        \\$m1(one two) = {
-                       \\    hello = $one
-                       \\    goodbye = $two
+                       \\    hello = %one
+                       \\    goodbye = %two
                        \\}
     }
 }
