@@ -5,7 +5,6 @@ const Scanner = @import("scan.zig").Scanner;
 const TokenDelimiter = enum(u8) {
     OpenParen = '(', // 0x28  40
     CloseParen = ')', // 0x29  41
-    Comma = ',', // 0x2C  44
     Equals = '=', // 0x3D  61
     OpenSquare = '[', // 0x5B  91
     CloseSquare = ']', // 0x5D  93
@@ -22,6 +21,7 @@ const NonTokenDelimiter = enum(u8) {
     Quote = '"', // 0x22  34
     Dollar = '$', // 0x24  36
     Percent = '%', // 0x25  37
+    Comma = ',', // 0x2C  44
     Dot = '.', // 0x2E  46
     ReverseSolidus = '\\', // 0x5C  92
 };
@@ -63,7 +63,7 @@ const SpecialToken = enum(u8) {
     MultiLineString,
     MacroKey,
     MacroParamKey,
-    MacroAccessor, // stretch-goal?
+    MacroAccessor,
 };
 
 pub const TokenType = @Type(out: {

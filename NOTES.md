@@ -2,7 +2,6 @@
 
 - Move the Zig library in libs/ to its own repo
 - Re-introduce the `Scanner` for the Zig library
-- Change `macro-use` terminology to `macro-expr`
 - Translate to JSON....
 - Better test cases
     - kv-pair
