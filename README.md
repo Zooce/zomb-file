@@ -1,4 +1,4 @@
-# The ZOMB file format
+# The ZOMB file format (WORK IN PROGRESS)
 
 Welcome! This is the `.zomb` data-exchange file format. It's like JSON but with macros (and some other relaxed syntax)!
 
