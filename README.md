@@ -4,28 +4,50 @@ Welcome! This is the `.zomb` data-exchange file format. It's like JSON but with 
 
 > _Similar to how JSON is pronounced "j-son", ZOMB is pronounced "zom-b"._
 
+## Objectives
+
+There are three main objectives of the ZOMB file format:
+
+1. Eliminate unwieldy repetition
+2. Flexible (but reasonable) formatting
+3. As few complicated rules as possible
+
+## General Rules and Definitions
+
+- ZOMB files must be UTF-8 encoded
+- "Whitespace" is defined as a tab (U+0009) or a space (U+0020)
+- "Newline" is defined as an LF (U+000A) or CRLF (U+000D U+000A)
+- Whitespace and newlines are ignored unless stated otherwise
+- Commas as separators are optional
+
 ## Key-Value Pairs
 
+ZOMB files contain one or more key-value pairs. A key-value pair has a string as the key, followed by an equals sign (`=`), followed by a value.
+
 ```
-name = ZOMB
-
-person = {
-    name = ZOMB
-    job = Hacker
-}
-
-"people jobs" = [ Hacker Dishwasher "Dog Walker" ]
+key = value
 ```
 
-ZOMB files contain one or more key-value pairs. A key-value pair has a string as the key, followed by an equals sign (`=`), followed by a string, an object, or an array. Let's talk more about each of these value types individually.
+There are only four types of values:
+
+- [String](#strings)
+- [Object](#objects)
+- [Array](#arrays)
+- [Macro Expression](#macro-expressions) (see the [Macros](#macros) section first)
+
+## Strings
+
+Strings are simple and yet complicated at the same time. To deal with this conundrum, there are three forms a string can take:
+
+- [Bare String](#bare-strings): A string containing no special delimiters
+- [Quoted String](#quoted-strings): A string that may contain special delimiters and escape sequences
+- [Raw String](#raw-strings): A string that may contain any characters with no restrictions
 
 ### Bare Strings
 
-A bare string is any set of non-control (0x20 - 0x10FFF) Unicode code points except for the following delimiters:
-- White Space
-    - Horizontal Tab
-    - Linefeed
-    - Carriage Return
+A bare string may contain any Unicode code point except the following:
+- Unicode control characters U+0000 through U+001F (includes tab, LF, and CRLF)
+- Space
 - Object/Array Delimiters
     - Open/Close Curly Braces
     - Open/Close Square Brackets
@@ -40,18 +62,73 @@ A bare string is any set of non-control (0x20 - 0x10FFF) Unicode code points exc
     - Comma
     - Reverse Solidus (Back Slash)
 
+```
+key = a_bare_string
+```
+
+```
+key = not a bare string  // this is an error!
+```
+
 ### Quoted Strings
 
-If you want to include any of the delimiters not allowed in bare strings, then you must surround the string with quotation marks -- standard escape sequences apply. Keys (since they're strings too) may also be quoted.
+If you want to include any of the delimiters not allowed in bare strings, excluding newlines, then you must surround the string with quotation marks -- standard escape sequences apply. Keys (since they're strings too) may also be quoted.
+
+```
+key = "a_quoted_string"  // this is fine, but it doesn't really need to be quoted
+```
+
+```
+key = "a quoted string"
+```
+
+```
+"this is okay too" = value
+```
+
+> _The quotation marks (`"`) are only delimiters and are not part of the string's actual value._
+
+### Raw Strings
+
+For fun, let's describe these in a couple of examples:
+
+```
+dialog = \\This is a raw string. Raw strings start with '\\' and run to the end
+         \\of the line. They continue until either an empty line or another
+         \\token is encountered.
+         \\
+         \\Raw strings may contain any characters without the need to escape
+         \\anything.
+         \\
+         \\Newlines are included in this string except for the last very last
+         \\one.
+```
+
+```
+dialog = \\blah blah
+         \\blah blah
+
+         \\this is an ERROR
+```
+
+```
+\\Raw strings CANNOT
+\\be used as keys
+= value
+```
+
+> _The leading backslashes (`\\`) are only delimiters and are not part of the string's actual value._
+
+> _Using `\\` as the delimiter is taken from the [Zig](https://ziglang.org) programming language._
 
 ### Objects
 
 Objects can hold a set of key-value pairs, just like in JSON:
 
 ```
-person = {
-    name = ZOMB
-    job = Hacker
+file = {
+    type = ZOMB
+    path = /home/zooce/passwords.zomb  // DON'T STORE YOUR PASSWORDS LIKE THIS!
 }
 ```
 
@@ -65,50 +142,6 @@ Arrays can hold a set of values, just like in JSON:
     Dishwasher
     "Dog Walker"
 ]
-```
-
-## Some Little Extras
-
-Let's go over some other fun features of ZOMB file.
-
-### Commas
-
-From the examples you've seen to this point, no commas were used to separate anything -- _because you don't have to_. If you prefer to use commas (which are indeed helpful delimiters in many cases), you may use a **single** comma between key-value pairs in an object or between values in an array (or between parameters in macros -- we'll get to that in a second).
-
-### White Space
-
-In general, white space is ignored, except to separate entities and to separate lines in multi-line strings ("Wait, what? Multi-line strings?"). So you can have this if you wanted to:
-
-```
-name=ZOMB person={name=ZOMB job=Hacker}"people jobs"=[Hacker Dishwasher "Dog Walker"]
-```
-
-### Multi-Line Strings
-
-For fun, let's describe these in an example:
-
-```
-dialog = \\This is a multi-line string.
-         \\Newline characters (\n and \r\n) are included in this string
-         \\except for the last very last one. The following
-         \\is a list of characters you need to escape in these kinds of strings:
-         \\  - nothing, because these are also raw strings ;)
-```
-
-> _Using `\\` as the delimiter is taken from [Zig](https://ziglang.org)._
-
-### Comments
-
-You can have comments in ZOMB files like this:
-
-```
-// this is a comment on its own line
-
-hello = goodbye // this is a comment at the end of a line
-
-// '//' is allowed inside a string and won't be parsed as a comment
-// so this  ┌──────────────────────────┐ is not a comment
-url = https://github.com/zooce/zomb-file // but this is
 ```
 
 ## Macros
@@ -206,7 +239,7 @@ $person(name, job) = {
             Lindsay
             Kai
             Penny
-            Maeve
+            Kara
         ]
     }
 }
@@ -214,17 +247,47 @@ $person(name, job) = {
 last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 ```
 
+## Some Little Extras
+
+Let's go over some other fun features of ZOMB file.
+
+### Commas
+
+From the examples you've seen to this point, no commas were used to separate anything -- _because you don't have to_. If you prefer to use commas (which are indeed helpful delimiters in many cases), you may use a **single** comma between key-value pairs in an object or between values in an array (or between parameters in macros -- we'll get to that in a second).
+
+### Whitespace
+
+In general, whitespace is ignored, except to separate entities and to separate lines in multi-line strings ("Wait, what? Multi-line strings?"). So you can have this if you wanted to:
+
+```
+name=ZOMB person={name=ZOMB job=Hacker}"people jobs"=[Hacker Dishwasher "Dog Walker"]
+```
+
+### Comments
+
+You can have comments in ZOMB files like this:
+
+```
+// this is a comment on its own line
+
+hello = goodbye // this is a comment at the end of a line
+
+// '//' is allowed inside a string and won't be parsed as a comment
+// so this  ┌──────────────────────────┐ is not a comment
+url = https://github.com/zooce/zomb-file // but this is
+```
+
 ## And that's it!
 
 So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed learning about this little file format, and I thank you for taking the time!
 
----
+# Ideas currently being considered
 
-# Stretch Goals
+The following are a set of ideas that are actively considered and may be useful features to add. These are features that I have not fully thought through yet -- e.g., "Is this feature easy to understand?" "Is this feature difficult to implement?" "Is this feature worth the complexity it costs?".
 
 ## String Concatenation
 
-I'm thinking it would be useful to allow string concatenation.
+I'm thinking it might be useful to allow string concatenation.
 
 ```
 $greet(name) = "Hello, " ++ %name
@@ -236,6 +299,38 @@ greetings [
 ```
 
 > _Using `++` as the delimiter is taken from [Zig](https://ziglang.org)._
+
+## Default Macro Parameter Values
+
+It might be nice to have the ability to set default macro parameter values like this:
+
+```
+$item(id, label = null) = {
+    id = %id
+    label = %label
+}
+
+item_1 = $item(Hello)
+item_2 = $item(Hello, "What's up?")
+```
+
+## Boolean and Empty Value Types
+
+It may be argued that these types are so common, that they should be part of the specification.
+
+The main reason I _don't_ like this is that they require a specific keyword, which means if you want the value as a string, you have to quote it (e.g., `false` vs `"false"`). That's obviously fine, but that's just one more rule to add about strings, which are already complicated enough.
+
+**An alternative to consider:**
+
+ZOMB parsing libraries can provide a configuration API for user defined keyword-type mappings. For example, the user might want `0` and `1` to be interpreted as boolean types, and `_` to be a null type:
+
+```
+pin0 = 1  // true
+pin1 = 0  // false
+pin2 = 1  // true
+
+rw = _  // null
+```
 
 ---
 
