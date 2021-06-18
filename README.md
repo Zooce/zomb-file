@@ -1,8 +1,8 @@
-# The ZOMB file format (WORK IN PROGRESS)
+# The ZOMB file format **(!!! WORK IN PROGRESS !!!)**
 
-Welcome! This is the ZOMB data-exchange file format. It's a mix of JSON and TOML but with macros!
+Welcome to the ZOMB file format specification. It's basically a mix of JSON and TOML...but with macros!
 
-> _Similar to how JSON is pronounced "j-son", ZOMB is pronounced "zom-b" 🧟._
+> _NOTE: Similar to how JSON is pronounced "J-son", ZOMB is pronounced "zom-B" 🧟._
 
 ## Objectives
 
