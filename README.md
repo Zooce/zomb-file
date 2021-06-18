@@ -18,22 +18,22 @@ There are three main objectives of the ZOMB file format:
 - "Whitespace" is defined as a tab (U+0009) or a space (U+0020)
 - "Newline" is defined as an LF (U+000A) or CRLF (U+000D U+000A)
 - Whitespace and newlines are ignored unless stated otherwise
-- Commas as separators are optional
+- Commas as separators are optional - see [Commas](#commas)
 
 ## Key-Value Pairs
-
-ZOMB files contain one or more key-value pairs. A key-value pair has a string as the key, followed by an equals sign (`=`), followed by a value.
 
 ```
 key = value
 ```
+
+ZOMB files contain one or more key-value pairs. A key-value pair has a string as the key, followed by an equals sign (`=`), followed by a value.
 
 There are only four types of values:
 
 - [String](#strings)
 - [Object](#objects)
 - [Array](#arrays)
-- [Macro Expression](#macro-expressions) (see the [Macros](#macros) section first)
+- [Macro Expression](#using-a-macro) (see the [Macros](#macros) section first)
 
 ## Strings
 
@@ -44,6 +44,14 @@ Strings are simple and yet complicated at the same time. To deal with this conun
 - [Raw String](#raw-strings): A string that may contain any characters with no restrictions
 
 ### Bare Strings
+
+```
+key = a_bare_string
+```
+
+```
+key = not a bare string  // this is an error!
+```
 
 A bare string may contain any Unicode code point except the following:
 - Unicode control characters U+0000 through U+001F (includes tab, LF, and CRLF)
@@ -62,17 +70,7 @@ A bare string may contain any Unicode code point except the following:
     - Comma
     - Reverse Solidus (Back Slash)
 
-```
-key = a_bare_string
-```
-
-```
-key = not a bare string  // this is an error!
-```
-
 ### Quoted Strings
-
-If you want to include any of the delimiters not allowed in bare strings, excluding newlines, then you must surround the string with quotation marks -- standard escape sequences apply. Keys (since they're strings too) may also be quoted.
 
 ```
 key = "a_quoted_string"  // this is fine, but it doesn't really need to be quoted
@@ -85,6 +83,8 @@ key = "a quoted string"
 ```
 "this is okay too" = value
 ```
+
+If you want to include any of the delimiters not allowed in bare strings, excluding newlines, then you must surround the string with quotation marks -- standard escape sequences apply. Keys (since they're strings too) may also be quoted.
 
 > _The quotation marks (`"`) are only delimiters and are not part of the string's actual value._
 
@@ -123,18 +123,16 @@ dialog = \\blah blah
 
 ### Objects
 
-Objects can hold a set of key-value pairs, just like in JSON:
-
 ```
 file = {
     type = ZOMB
-    path = /home/zooce/passwords.zomb  // DON'T STORE YOUR PASSWORDS LIKE THIS!
+    path = "/home/zooce/passwords.zomb"  // DON'T STORE YOUR PASSWORDS LIKE THIS!
 }
 ```
 
-### Arrays
+Objects can hold a set of key-value pairs, just like in JSON.
 
-Arrays can hold a set of values, just like in JSON:
+### Arrays
 
 ```
 "people jobs" = [
@@ -144,26 +142,23 @@ Arrays can hold a set of values, just like in JSON:
 ]
 ```
 
+Arrays can hold a set of values, just like in JSON.
+
 ## Macros
 
 Macros are the special sauce of ZOMB files. They allow you to write reusable values, objects, and arrays. Let's see an example:
 
 ```
-$jobs = [
-    Hacker
-    Dishwasher
-    "Dog Walker"
-]
-
-$person(name, job) = {  // sometimes commas are nice (still not required though)
-    name = %name
-    job = %job
-}
-
+$chuck = "Chuck Norris"
+$jobs = [ Hacker Dishwasher "Dog Walker" ]
 $names = {
     god = Thor
     file = ZOMB
-    "the best" = "Chuck Norris"
+    "the best" = $chuck
+}
+$person(name, job) = {  // sometimes commas are nice (still not required though)
+    name = %name
+    job = %job
 }
 
 people = [
@@ -174,27 +169,30 @@ people = [
 ]
 ```
 
-There's a lot going on here, but I bet you already kind of get it.
+There's a lot going on here, but I bet you already kind of get it, don't you?
 
 ### Defining a Macro
 
 Macros are defined just like key-value pairs, but with some special rules.
 
 1. Macro keys must start with a dollar sign (`$`).
-2. Macros can have a set of parameters (regardless of their value type). Parameters are defined as a list of strings inside a set of parentheses, between the macro key and the equals sign.
-3. Parameters can be used inside the macro's value by placing a percent sign (`%`) before the parameter name. This eliminates the need for scoping rules.
+2. Macros can have a set of parameters (regardless of their value type). Parameters are defined as a list of strings inside a set of parentheses, placed between the macro key and the equals sign. _An empty set of parentheses is **invalid**._
+3. Parameters can be used inside the macro's value by placing a percent sign (`%`) before the parameter name. This eliminates the need for complicated scoping rules.
 4. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value. This is to keep you from doing unnecessary things.
 4. Recursion in macro definitions is forbidden. Here are a couple of examples:
     ```
     $name = $name  // not cool
+    ```
 
+    ```
     $macro1(p1 p2) = {
         this = %p1
         that = $macro2(%p2) // this uses `$macro1` -- forbidden
     }
-
     $macro2(a) = $macro1(a, 5)
+    ```
 
+    ```
     $okay(param) = [ 1 2 %param 3 ]
 
     // this _is_ okay, because it is not recursion
@@ -203,7 +201,7 @@ Macros are defined just like key-value pairs, but with some special rules.
 
 ### Using a Macro
 
-To use a macro as a value, you specify its key (including the `$`).
+To use a macro as a value (called a "Macro Expression"), you specify its key (including the `$`).
 
 ```
 $name = Gene
@@ -216,7 +214,7 @@ names = [
 ]
 ```
 
-If the macro has parameters, you pass them just like you would to a function (in common languages, that is).
+If the macro has parameters, you pass them just like you would to a function (in common programming languages, that is).
 
 ```
 $person(name, job) = {
@@ -227,7 +225,7 @@ $person(name, job) = {
 "cool person" = $person(Zooce, Dishwasher)
 ```
 
-If the macro value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays), with a `.` followed by either the key or index you want to access.
+If the macro's value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays) with the macro expression followed by a `.` and then either the key or index you want to access.
 
 ```
 $person(name, job) = {
@@ -247,35 +245,15 @@ $person(name, job) = {
 last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 ```
 
-## Some Little Extras
-
-Let's go over some other fun features of ZOMB file.
-
-### Commas
-
-From the examples you've seen to this point, no commas were used to separate anything -- _because you don't have to_. If you prefer to use commas (which are indeed helpful delimiters in many cases), you may use a **single** comma between key-value pairs in an object or between values in an array (or between parameters in macros -- we'll get to that in a second).
-
-### Whitespace
-
-In general, whitespace is ignored, except to separate entities and to separate lines in multi-line strings ("Wait, what? Multi-line strings?"). So you can have this if you wanted to:
-
-```
-name=ZOMB person={name=ZOMB job=Hacker}"people jobs"=[Hacker Dishwasher "Dog Walker"]
-```
-
-### Comments
-
-You can have comments in ZOMB files like this:
+## Comments
 
 ```
 // this is a comment on its own line
 
 hello = goodbye // this is a comment at the end of a line
-
-// '//' is allowed inside a string and won't be parsed as a comment
-// so this  ┌──────────────────────────┐ is not a comment
-url = https://github.com/zooce/zomb-file // but this is
 ```
+
+Comments start with `//` and run to the end of the line.
 
 ## And that's it!
 
@@ -283,7 +261,7 @@ So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed
 
 # Ideas currently being considered
 
-The following are a set of ideas that are actively considered and may be useful features to add. These are features that I have not fully thought through yet -- e.g., "Is this feature easy to understand?" "Is this feature difficult to implement?" "Is this feature worth the complexity it costs?".
+The following are a set of ideas that are actively being considered and may be useful features to add. These are features that I have not fully thought through yet -- e.g., "Is this feature easy to understand?" "Is this feature difficult to implement?" "Is this feature worth the complexity it costs?".
 
 ## String Concatenation
 
