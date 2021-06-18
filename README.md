@@ -1,6 +1,6 @@
 # The ZOMB file format (WORK IN PROGRESS)
 
-Welcome! This is the `.zomb` data-exchange file format. It's like JSON but with macros (and some other relaxed syntax)!
+Welcome! This is the ZOMB data-exchange file format. It's like JSON but with macros (and some other relaxed syntax)!
 
 > _Similar to how JSON is pronounced "j-son", ZOMB is pronounced "zom-b"._
 
@@ -27,6 +27,8 @@ key = value
 ```
 
 ZOMB files contain one or more key-value pairs. A key-value pair has a string as the key, followed by an equals sign (`=`), followed by a value.
+
+> _NOTE: Keys at the same level, must be unique._
 
 There are only four types of values:
 
@@ -131,6 +133,8 @@ file = {
 ```
 
 Objects can hold a set of key-value pairs, just like in JSON.
+
+> _NOTE: Keys in the same object, must be unique._
 
 ### Arrays
 
