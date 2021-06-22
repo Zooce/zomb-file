@@ -1,4 +1,8 @@
 ;; The ZOMB file format grammar in ABNF format.
+;;
+;; This ABNF definition of ZOMB is heavily influenced by the TOML ABNF found at:
+;;      https://github.com/toml-lang/toml/blob/master/toml.abnf
+;;
 
 zomb = decl *( separator decl ) [ separator ]
 
@@ -6,51 +10,51 @@ decl = kv-pair / macro-def / comment
 
 ;; Key-Value Pairs
 
-kv-pair = string equals value
+kv-pair = string [ padding ] equals [ padding ] value
 
-value = string / ml-string / object / array / macro-expr
+value = string / raw-string / object / array / macro-expr
 
-object = object-begin [ kv-pair-list ] object-end
+object = object-begin [ padding ] [ kv-pair-list ] object-end
 
 kv-pair-list = kv-pair *( separator kv-pair ) [ separator ]
 
-array = array-begin [ value-list ] array-end
+array = array-begin [ padding ] [ value-list ] array-end
 
 value-list = value *( separator value ) [ separator ]
 
-macro-expr = macro-key [ macro-expr-params ] *( macro-accessor )
+macro-expr = macro-key [ padding ] [ macro-expr-params ] *( macro-accessor )
 
-macro-expr-params = macro-params-begin value-list macro-params-end
+macro-expr-params = macro-params-begin [ padding ] value-list macro-params-end
 
-macro-accessor = %x2E string
+macro-accessor = dot string
 
 ;; Macros
 
-macro-def = macro-key [ macro-def-params ] equals macro-value
+macro-def = macro-key [ padding ] [ macro-def-params ] [ padding ] equals [ padding ] macro-value
 
-macro-key = %x24 string
+macro-key = dollar string
 
-macro-def-params = macro-params-begin string-list macro-params-end
+macro-def-params = macro-params-begin [ padding ] string-list macro-params-end
 
 string-list = string *( separator string ) [ separator ]
 
-macro-value = macro-param / string / ml-string / macro-object / macro-array / macro-macro-expr
+macro-value = macro-param / string / raw-string / macro-object / macro-array / macro-macro-expr
 
-macro-param = %x25 string
+macro-param = percent string
 
-macro-object = object-begin [ macro-kv-pair-list ] object-end
+macro-object = object-begin [ padding ] [ macro-kv-pair-list ] object-end
 
-macro-kv-pair = string equals macro-value
+macro-kv-pair = string [ padding ] equals [ padding ] macro-value
 
 macro-kv-pair-list = macro-kv-pair *( separator macro-kv-pair ) [ separator ]
 
-macro-array = array-begin [ macro-value-list ] array-end
+macro-array = array-begin [ padding ] [ macro-value-list ] array-end
 
 macro-value-list = macro-value *( separator macro-value ) [ separator ]
 
-macro-macro-expr = macro-key [ macro-macro-expr-params ] *( macro-accessor )
+macro-macro-expr = macro-key [ padding ] [ macro-macro-expr-params ] *( macro-accessor )
 
-macro-macro-expr-params = macro-params-begin macro-value-list macro-params-end
+macro-macro-expr-params = macro-params-begin [ padding ] macro-value-list macro-params-end
 
 ;; Strings
 
@@ -62,60 +66,51 @@ quoted-string = DQUOTE escaped-string DQUOTE
 
 escaped-string = *( non-escaped / ( %x5C escaped ) )
 
-ml-string = 1*( [ padding ] %x5C.5C *any newline )
+raw-string = raw-line *( newline [ padding ] raw-line )
 
-;; Comment
-
-comment = %x2F.2F *any newline
-
-;; Padded Delimiters
-
-equals = [ padding ] %x3D [ padding ]
-
-comma = [ padding ] %x2C [ padding ]
-
-object-begin = [ padding ] %x7B [ padding ]
-
-object-end = [ padding ] %x7D [ padding ]
-
-array-begin = [ padding ] %x5B [ padding ]
-
-array-end = [ padding ] %x5D [ padding ]
-
-macro-params-begin = [ padding ] %x28 [ padding ]
-
-macro-params-end = [ padding ] %x29 [ padding ]
-
-;; Delimiters
-
-newline =  LF / CRLF
-
-padding = 1*( WSP / newline )
-
-separator = comma / padding
-
-delimiter = WSP / newline
-delimiter =/ DQUOTE     ; "
-delimiter =/ %x24-25    ; $ and %
-delimiter =/ %x28-29    ; ( and )
-delimiter =/ %x2C       ; ,
-delimiter =/ %x2E       ; .
-delimiter =/ %x3D       ; =
-delimiter =/ %x5B-5D    ; [ and \ and ]
-delimiter =/ %x7B       ; {
-delimiter =/ %x7D       ; }
+raw-line = %x5C.5C *any
 
 non-delimiter = %x21 / %x23 / %x26-27 / %x2A-2B / %x2D / %x2F-3C / %x3E-5A / %x5E-7A / %x7C / %x7E-10FFFF
 
-escaped = DQUOTE        ; "
-escaped =/ %x5C         ; \
-escaped =/ %x62         ; b
-escaped =/ %x66         ; f
-escaped =/ %x6E         ; n
-escaped =/ %x72         ; r
-escaped =/ %x74         ; t
-escaped =/ %x75 4HEXDIG ; uXXXX
+;         "        \      b      f      n      r      t      uXXXX
+escaped = DQUOTE / %x5C / %x62 / %x66 / %x6E / %x72 / %x74 / ( %x75 4HEXDIG )
 
-non-escaped = %x21 / %x23-5B / %x5D-10FFFF
+non-escaped = WSP / %x21 / %x23-5B / %x5D-10FFFF
+
+;; Comment
+
+comment = %x2F.2F *any
+
+;; Special Delimiters
+
+dot = %x2E
+
+dollar = %x24
+
+equals = %x3D
+
+comma = %x2C
+
+percent = %x25
+
+object-begin = %x7B
+
+object-end = %x7D
+
+array-begin = %x5B
+
+array-end = %x5D
+
+macro-params-begin = %x28
+
+macro-params-end = %x29
+
+;; Other
+
+newline = LF / CRLF
+
+padding = 1*( WSP / newline / ( comment newline ) )
+
+separator = padding / ( [ padding ] comma [ padding ] )
 
 any = WSP / %x21-10FFFF
