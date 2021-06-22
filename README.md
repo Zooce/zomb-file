@@ -4,31 +4,34 @@ Welcome to the ZOMB file format specification. It's basically a mix of JSON and 
 
 > _NOTE: Similar to how JSON is pronounced "J-son", ZOMB is pronounced "zom-B" 🧟._
 
-## Objectives
+## Why use a ZOMB file?
 
-There are three main objectives of the ZOMB file format:
-
-1. Eliminate unwieldy repetition
-2. Flexible (but reasonable) formatting
-3. As few complicated rules as possible
+1. No more unwieldy repetition
+2. Simple, intuitive rules
+3. Easy conversion to other popular file formats
 
 ## General Rules and Definitions
 
-- ZOMB files must be UTF-8 encoded
+- ZOMB files are UTF-8 encoded text files
 - "Whitespace" is defined as a tab (U+0009) or a space (U+0020)
-- "Newline" is defined as an LF (U+000A) or CRLF (U+000D U+000A)
+- "Newline" is defined as an LF (U+000A) or a CRLF (U+000D U+000A)
 - Whitespace and newlines are ignored unless stated otherwise
 - Commas as separators are optional - see [Commas](#commas)
 
 ## Key-Value Pairs
 
-```
+```zomb
 key = value
 ```
 
-ZOMB files contain one or more key-value pairs. A key-value pair has a string as the key, followed by an equals sign (`=`), followed by a value.
+A key-value pair associates a key (which is a string) with a value.
 
 > _NOTE: Keys at the same level, must be unique._
+
+> _NOTE: Using `=` as the separator is taken from the [TOML](https://toml.io/en/) file format._
+
+
+### Value Types
 
 There are only four types of values:
 
@@ -39,7 +42,7 @@ There are only four types of values:
 
 ## Strings
 
-Strings are simple and yet complicated at the same time. To deal with this conundrum, there are three forms a string can take:
+Strings can be simple and yet they have plenty of complicated scenarios. To deal with this conundrum, there are three forms a string can take:
 
 - [Bare String](#bare-strings): A string containing no special delimiters
 - [Quoted String](#quoted-strings): A string that may contain special delimiters and escape sequences
@@ -47,46 +50,37 @@ Strings are simple and yet complicated at the same time. To deal with this conun
 
 ### Bare Strings
 
-```
+```zomb
 key = a_bare_string
 ```
 
-```
+```zomb
 key = not a bare string  // this is an error!
 ```
 
-A bare string may contain any Unicode code point except the following:
+A bare string may contain any Unicode code point except any of these special delimiters:
 - Unicode control characters U+0000 through U+001F (includes tab, LF, and CRLF)
-- Space
-- Object/Array Delimiters
-    - Open/Close Curly Braces
-    - Open/Close Square Brackets
-- Equals Sign
-- Macro Delimiters
-    - Dollar Sign
-    - Percent Sign
-    - Full Stop (Period/Dot)
-    - Open/Close Parenthesis
-- Others:
-    - Quotation Mark (Double Quotes)
-    - Comma
-    - Reverse Solidus (Back Slash)
+- Space (` `)
+- Object/Array Delimiters (`{` and `}`)
+- Equals Sign (`=`)
+- Macro Delimiters (`$`, `%`, `.`, `(`, and `)`)
+- Others (`"`, `,`, and `\`)
 
 ### Quoted Strings
 
-```
-key = "a_quoted_string"  // this is fine, but it doesn't really need to be quoted
+```zomb
+key = "a_quoted_string"  // this is fine, but unnecessary
 ```
 
-```
+```zomb
 key = "a quoted string"
 ```
 
-```
+```zomb
 "this is okay too" = value
 ```
 
-If you want to include any of the delimiters not allowed in bare strings, excluding newlines, then you must surround the string with quotation marks -- standard escape sequences apply. Keys (since they're strings too) may also be quoted.
+If you want to include any of the special delimiters not allowed in bare strings, excluding newlines, then you can surround the string with quotation marks -- standard escape sequences apply. Keys (since they're strings too) may also be quoted.
 
 > _The quotation marks (`"`) are only delimiters and are not part of the string's actual value._
 
@@ -94,26 +88,26 @@ If you want to include any of the delimiters not allowed in bare strings, exclud
 
 For fun, let's describe these in a couple of examples:
 
-```
+```zomb
 dialog = \\This is a raw string. Raw strings start with '\\' and run to the end
          \\of the line. They continue until either an empty line or another
          \\token is encountered.
          \\
-         \\Raw strings may contain any characters without the need to escape
-         \\anything.
+         \\Raw strings may contain any characters without the need for an escape
+         \\sequence.
          \\
-         \\Newlines are included in this string except for the last very last
+         \\Newlines are included in raw strings except for the last very last
          \\one.
 ```
 
-```
+```zomb
 dialog = \\blah blah
          \\blah blah
 
          \\this is an ERROR
 ```
 
-```
+```zomb
 \\Raw strings CANNOT
 \\be used as keys
 = value
@@ -125,20 +119,20 @@ dialog = \\blah blah
 
 ### Objects
 
-```
+```zomb
 file = {
     type = ZOMB
     path = "/home/zooce/passwords.zomb"  // DON'T STORE YOUR PASSWORDS LIKE THIS!
 }
 ```
 
-Objects can hold a set of key-value pairs, just like in JSON.
+Objects can hold a set of [key-value](#key-value-pairs) pairs.
 
 > _NOTE: Keys in the same object, must be unique._
 
 ### Arrays
 
-```
+```zomb
 "people jobs" = [
     Hacker
     Dishwasher
@@ -146,13 +140,13 @@ Objects can hold a set of key-value pairs, just like in JSON.
 ]
 ```
 
-Arrays can hold a set of values, just like in JSON.
+Arrays can hold a set of [values](#value-types).
 
 ## Macros
 
 Macros are the special sauce of ZOMB files. They allow you to write reusable values, objects, and arrays. Let's see an example:
 
-```
+```zomb
 $chuck = "Chuck Norris"
 $jobs = [ Hacker Dishwasher "Dog Walker" ]
 $names = {
@@ -173,7 +167,7 @@ people = [
 ]
 ```
 
-There's a lot going on here, but I bet you already kind of get it, don't you?
+There's a lot going on there, but I bet you already kind of get it, don't you?
 
 ### Defining a Macro
 
@@ -181,14 +175,14 @@ Macros are defined just like key-value pairs, but with some special rules.
 
 1. Macro keys must start with a dollar sign (`$`).
 2. Macros can have a set of parameters (regardless of their value type). Parameters are defined as a list of strings inside a set of parentheses, placed between the macro key and the equals sign. _An empty set of parentheses is **invalid**._
-3. Parameters can be used inside the macro's value by placing a percent sign (`%`) before the parameter name. This eliminates the need for complicated scoping rules.
+3. Parameters can be used as values inside the macro's value by placing a percent sign (`%`) before the parameter name. This eliminates the need for complicated scoping rules.
 4. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value. This is to keep you from doing unnecessary things.
 4. Recursion in macro definitions is forbidden. Here are a couple of examples:
-    ```
+    ```zomb
     $name = $name  // not cool
     ```
 
-    ```
+    ```zomb
     $macro1(p1 p2) = {
         this = %p1
         that = $macro2(%p2) // this uses `$macro1` -- forbidden
@@ -196,7 +190,7 @@ Macros are defined just like key-value pairs, but with some special rules.
     $macro2(a) = $macro1(a, 5)
     ```
 
-    ```
+    ```zomb
     $okay(param) = [ 1 2 %param 3 ]
 
     // this _is_ okay, because it is not recursion
@@ -207,7 +201,7 @@ Macros are defined just like key-value pairs, but with some special rules.
 
 To use a macro as a value (called a "Macro Expression"), you specify its key (including the `$`).
 
-```
+```zomb
 $name = Gene
 
 names = [
@@ -218,20 +212,22 @@ names = [
 ]
 ```
 
-If the macro has parameters, you pass them just like you would to a function (in common programming languages, that is).
+If the macro has parameters, you pass in a value for each. Parameter values can be any type.
 
-```
+```zomb
 $person(name, job) = {
     name = %name
     job = %job
 }
 
-"cool person" = $person(Zooce, Dishwasher)
+"cool person" = $person(Zooce, { type = Dishwasher, pay = 100000 })
 ```
 
 If the macro's value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays) with the macro expression followed by a `.` and then either the key or index you want to access.
 
-```
+> _NOTE: You may **NOT** access individual keys or indexes of parameters. Why? Because you pass them in when using a macro expression, so it's unnecessary._
+
+```zomb
 $person(name, job) = {
     name = %name
     job = {
@@ -251,17 +247,23 @@ last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 
 ## Comments
 
-```
+You've already seen comments in the previous examples, but now you know that comments are a real thing!
+
+```zomb
 // this is a comment on its own line
 
 hello = goodbye // this is a comment at the end of a line
+
+key = [ // comments can be pretty much anywhere
+    1 2 3
+]
 ```
 
 Comments start with `//` and run to the end of the line.
 
 ## And that's it!
 
-So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed learning about this little file format, and I thank you for taking the time!
+So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed learning about this little file format, and I appreciate you taking the time!
 
 # Ideas currently being considered
 
@@ -271,7 +273,7 @@ The following are a set of ideas that are actively being considered and may be u
 
 I'm thinking it might be useful to allow string concatenation.
 
-```
+```zomb
 $greet(name) = "Hello, " ++ %name
 
 greetings [
@@ -286,7 +288,7 @@ greetings [
 
 It might be nice to have the ability to set default macro parameter values like this:
 
-```
+```zomb
 $item(id, label = null) = {
     id = %id
     label = %label
@@ -304,9 +306,9 @@ The main reason I _don't_ like this is that they require a specific keyword, whi
 
 **An alternative to consider:**
 
-ZOMB parsing libraries can provide a configuration API for user defined keyword-type mappings. For example, the user might want `0` and `1` to be interpreted as boolean types, and `_` to be a null type:
+ZOMB parsing libraries can provide a configuration API for user defined keyword-type mappings or maybe a set of convenience functions for interpreting a string value as some other type (integers, floats, boolean, null, etc.). For example, the user might want `0` and `1` to be interpreted as boolean types, and `_` to be a null type:
 
-```
+```zomb
 pin0 = 1  // true
 pin1 = 0  // false
 pin2 = 1  // true
