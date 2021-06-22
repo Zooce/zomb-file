@@ -1,8 +1,8 @@
 ;; The ZOMB file format grammar in ABNF format.
 
-zomb = decl+
+zomb = decl *( separator decl ) [ separator ]
 
-decl = ( kv-pair / macro-def ) separator
+decl = kv-pair / macro-def / comment
 
 ;; Key-Value Pairs
 
@@ -56,7 +56,17 @@ macro-macro-expr-params = macro-params-begin macro-value-list macro-params-end
 
 string = bare-string / quoted-string
 
-bare-string = ;; LEFT OFF HERE
+bare-string = 1*( non-delimiter )
+
+quoted-string = DQUOTE escaped-string DQUOTE
+
+escaped-string = *( non-escaped / ( %x5C escaped ) )
+
+ml-string = 1*( [ padding ] %x5C.5C *any newline )
+
+;; Comment
+
+comment = %x2F.2F *any newline
 
 ;; Padded Delimiters
 
@@ -72,16 +82,40 @@ array-begin = [ padding ] %x5B [ padding ]
 
 array-end = [ padding ] %x5D [ padding ]
 
-macro-params-begin [ padding ] %x28 [ padding ]
+macro-params-begin = [ padding ] %x28 [ padding ]
 
-macro-params-end [ padding ] %x29 [ padding ]
+macro-params-end = [ padding ] %x29 [ padding ]
 
-;; Separators
+;; Delimiters
 
-whitespace = %x09 / %x20
+newline =  LF / CRLF
 
-newline = %x0A / ( %x0D %x0A )
-
-padding = 1*( whitespace / newline )
+padding = 1*( WSP / newline )
 
 separator = comma / padding
+
+delimiter = WSP / newline
+delimiter =/ DQUOTE     ; "
+delimiter =/ %x24-25    ; $ and %
+delimiter =/ %x28-29    ; ( and )
+delimiter =/ %x2C       ; ,
+delimiter =/ %x2E       ; .
+delimiter =/ %x3D       ; =
+delimiter =/ %x5B-5D    ; [ and \ and ]
+delimiter =/ %x7B       ; {
+delimiter =/ %x7D       ; }
+
+non-delimiter = %x21 / %x23 / %x26-27 / %x2A-2B / %x2D / %x2F-3C / %x3E-5A / %x5E-7A / %x7C / %x7E-10FFFF
+
+escaped = DQUOTE        ; "
+escaped =/ %x5C         ; \
+escaped =/ %x62         ; b
+escaped =/ %x66         ; f
+escaped =/ %x6E         ; n
+escaped =/ %x72         ; r
+escaped =/ %x74         ; t
+escaped =/ %x75 4HEXDIG ; uXXXX
+
+non-escaped = %x21 / %x23-5B / %x5D-10FFFF
+
+any = WSP / %x21-10FFFF
