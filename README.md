@@ -268,6 +268,7 @@ So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed
 # Current Implementations
 
 - [`zomb-zig`](https://github.com/Zooce/zomb-zig)
+- _planning on doing a Python implementation soon_
 
 > _Hopefully more coming soon!_
 
@@ -280,33 +281,28 @@ Here are some of the questions I need to answer for each:
     - Is this feature difficult to implement?
     - Is this feature worth the complexity it costs?
 
-## String Concatenation
+## Labeled Parameter Arguments
 
-I'm thinking it might be useful to allow string concatenation.
-
-```zomb
-$greet(name) = "Hello, " ++ %name
-
-greetings [
-    $greet(Zooce)
-    $greet(Lindz)
-]
-```
-
-> _Using `++` as the delimiter is taken from [Zig](https://ziglang.org)._
-
-## Default Macro Parameter Values
-
-It might be nice to have the ability to set default macro parameter values like this:
+This is kind of like how Python or Swift allows you to specify the parameter name when you pass an argument to a function.
 
 ```zomb
-$item(id, label = null) = {
+// this example kind of sucks, but you get it
+
+$item(id, label) = {
     id = %id
     label = %label
 }
 
-item_1 = $item(Hello)
-item_2 = $item(Hello, "What's up?")
+item1 = $item(
+    id = Hello
+    label = { text = 123 }
+)
+
+// this would also be okay
+item2 = $item(
+    label = { text = 123 }
+    id = Hello
+)
 ```
 
 ## Number, Boolean, and Empty Value Types
