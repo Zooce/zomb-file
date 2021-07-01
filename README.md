@@ -59,12 +59,18 @@ key = not a bare string  // this is an error!
 ```
 
 A bare string may contain any Unicode code point except any of these special delimiters:
-- Unicode control characters U+0000 through U+001F (includes tab, LF, and CRLF)
-- Space (` `)
-- Object/Array Delimiters (`{` and `}`)
-- Equals Sign (`=`)
-- Macro Delimiters (`$`, `%`, `.`, `(`, and `)`)
-- Others (`"`, `,`, and `\`)
+
+- Unicode control characters (0x00 through 0x1F)
+- ` `, `,`, `.`, `"`, `\`
+- `=`, `$`, `%`
+- `(`, `)`, `[`, `]`, `{`, `}`
+
+> For reference, here are the exact Unicode code points:
+> - U+0000-U+001F
+> - U+0020, U+0022, U+0024, U+0025, U+0028, U+0029, U+002C, U+002E
+> - U+003D
+> - U+005B, U+005C, U+005D
+> - U+007B, U+007D
 
 ### Quoted Strings
 
