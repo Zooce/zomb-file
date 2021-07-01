@@ -7,12 +7,13 @@ Welcome to the ZOMB file format specification. It's basically a mix of JSON and 
 ## Why use a ZOMB file?
 
 1. No more unwieldy repetition
-2. Simple, intuitive rules
+2. Simple, intuitive, and convenient
 3. Easy conversion to other popular file formats
 
-## General Rules and Definitions
+## General Rules, Guidelines, and Definitions
 
 - ZOMB files are UTF-8 encoded text files
+- ZOMB files typically have a `.zomb` extension
 - "Whitespace" is defined as a tab (U+0009) or a space (U+0020)
 - "Newline" is defined as an LF (U+000A) or a CRLF (U+000D U+000A)
 - Whitespace and newlines are ignored unless stated otherwise
@@ -38,11 +39,11 @@ There are only four types of values:
 - [String](#strings)
 - [Object](#objects)
 - [Array](#arrays)
-- [Macro Expression](#using-a-macro) (see the [Macros](#macros) section first)
+- [Macro Expression](#using-a-macro) (see [Macros](#macros))
 
 ## Strings
 
-Strings can be simple and yet they have plenty of complicated scenarios. To deal with this conundrum, there are three forms a string can take:
+Strings can be simple and yet they have plenty of complicated scenarios. ZOMB files deal with this by placing strings in three categories:
 
 - [Bare String](#bare-strings): A string containing no special delimiters
 - [Quoted String](#quoted-strings): A string that may contain special delimiters and escape sequences
@@ -60,17 +61,10 @@ key = not a bare string  // this is an error!
 
 A bare string may contain any Unicode code point except any of these special delimiters:
 
-- Unicode control characters (0x00 through 0x1F)
-- ` `, `,`, `.`, `"`, `\`
-- `=`, `$`, `%`
-- `(`, `)`, `[`, `]`, `{`, `}`
-
-> For reference, here are the exact Unicode code points:
-> - U+0000-U+001F
-> - U+0020, U+0022, U+0024, U+0025, U+0028, U+0029, U+002C, U+002E
-> - U+003D
-> - U+005B, U+005C, U+005D
-> - U+007B, U+007D
+- Unicode control characters (U+0000 through U+001F)
+- ` `, `,`, `.`, `"`, `\` (U+0020, U+002C, U+002E, U+0022, U+005C)
+- `=`, `$`, `%` (U+003D, U+0024, U+0025)
+- `(`, `)`, `[`, `]`, `{`, `}` (U+0028, U+0029, U+005B, U+005D, U+007B, U+007D)
 
 ### Quoted Strings
 
@@ -79,14 +73,16 @@ key = "a_quoted_string"  // this is fine, but unnecessary
 ```
 
 ```zomb
-key = "a quoted string"
+key = "a quoted string"  // this _is_ necessary
 ```
 
 ```zomb
 "this is okay too" = value
 ```
 
-If you want to include any of the special delimiters not allowed in bare strings, excluding newlines, then you can surround the string with quotation marks -- standard escape sequences apply. Keys (since they're strings too) may also be quoted.
+If you want to include any of the special delimiters not allowed in bare strings, excluding newlines, then you can surround the string with quotation marks -- standard escape sequences apply.
+
+> _Keys (since they're strings too) may also be quoted._
 
 > _The quotation marks (`"`) are only delimiters and are not part of the string's actual value._
 
@@ -132,7 +128,7 @@ file = {
 }
 ```
 
-Objects can hold a set of [key-value](#key-value-pairs) pairs.
+Objects group a set of [key-value](#key-value-pairs) pairs, inside a pair of curly braces.
 
 > _Keys in the same object, must be unique._
 
@@ -146,7 +142,7 @@ Objects can hold a set of [key-value](#key-value-pairs) pairs.
 ]
 ```
 
-Arrays can hold a set of [values](#value-types).
+Arrays group a set of [values](#value-types), inside square brackets.
 
 ## Macros
 
@@ -179,7 +175,7 @@ There's a lot going on there, but I bet you already kind of get it, don't you?
 
 Macros are defined just like key-value pairs, but with some special rules.
 
-1. Macro keys start with a dollar sign (`$`).
+1. Macro keys can be either a bare string or a quoted string, with a leading dollar sign (`$`).
 2. Macros can have a set of parameters, declared after the key inside a set of parentheses. _An empty set of parentheses is **invalid**._
 3. Parameters can be used as values inside the macro's value by placing a percent sign (`%`) before the parameter name. This eliminates the need for complicated scoping rules.
 4. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value. _This is to prevent you from doing unnecessary things_.
@@ -243,7 +239,8 @@ $person(name, job) = {
             Lindsay
             Kai
             Penny
-            Kara
+            Maeve
+            Xena
         ]
     }
 }
@@ -277,57 +274,6 @@ So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed
 - _planning on doing a Python implementation soon_
 
 > _Hopefully more coming soon!_
-
-# Ideas currently being considered
-
-The following are a set of ideas that I'm actively considering and that may be useful features.
-
-Here are some of the questions I need to answer for each:
-    - Is this feature easy to understand?
-    - Is this feature difficult to implement?
-    - Is this feature worth the complexity it costs?
-
-## Labeled Parameter Arguments
-
-This is kind of like how Python or Swift allows you to specify the parameter name when you pass an argument to a function.
-
-```zomb
-// this example kind of sucks, but you get it
-
-$item(id, label) = {
-    id = %id
-    label = %label
-}
-
-item1 = $item(
-    id = Hello
-    label = { text = 123 }
-)
-
-// this would also be okay
-item2 = $item(
-    label = { text = 123 }
-    id = Hello
-)
-```
-
-## Number, Boolean, and Empty Value Types
-
-It may be argued that these types are so common, that they should be part of the specification.
-
-The main reason I _don't_ like this is that they either put an unnecessary restriction on strings or they require a specific keyword, which means if you want the value as a string, you have to quote it (e.g., `false` vs `"false"`). That's obviously fine, but 1) that's just more rules to add about strings, which are already complicated enough and 2) I don't think the file format should dictate how your values are interpreted -- they're your string values...the file format is just a format for grouping your strings together.
-
-**An alternative to consider:**
-
-ZOMB parsing libraries can provide a configuration API for user defined keyword-type mappings or maybe a set of convenience functions for interpreting a string value as some other type (integers, floats, boolean, null, etc.). For example, the user might want `0` and `1` to be interpreted as boolean types, and `_` to be a null type:
-
-```zomb
-pin0 = 1  // zomb.getInt("pin0")
-pin1 = 0  // zomb.getBool("pin1")
-pin2 = 1  // zomb.getBool("pin2")
-
-rw = _  // zomb.getIntOrNull("rw")
-```
 
 ---
 
