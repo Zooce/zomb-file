@@ -1,4 +1,4 @@
-# The ZOMB file format **(!!! WORK IN PROGRESS !!!)**
+# The ZOMB file format _(!!! WORK IN PROGRESS !!!)_
 
 Welcome to the ZOMB file format specification. It's basically a mix of JSON and TOML...but with macros!
 
@@ -21,11 +21,11 @@ Welcome to the ZOMB file format specification. It's basically a mix of JSON and 
 
 ## Key-Value Pairs
 
+A key-value pair associates a key (which is a string) with a value.
+
 ```zomb
 key = value
 ```
-
-A key-value pair associates a key (which is a string) with a value.
 
 > _Keys at the same level, must be unique._
 
@@ -51,6 +51,13 @@ Strings can be simple and yet they have plenty of complicated scenarios. ZOMB fi
 
 ### Bare Strings
 
+A bare string may contain any Unicode code point except any of these special delimiters:
+
+- Unicode control characters (U+0000 through U+001F)
+- ` `, `,`, `.`, `"`, `\` (U+0020, U+002C, U+002E, U+0022, U+005C)
+- `=`, `$`, `%` (U+003D, U+0024, U+0025)
+- `(`, `)`, `[`, `]`, `{`, `}` (U+0028, U+0029, U+005B, U+005D, U+007B, U+007D)
+
 ```zomb
 key = a_bare_string
 ```
@@ -59,14 +66,9 @@ key = a_bare_string
 key = not a bare string  // this is an error!
 ```
 
-A bare string may contain any Unicode code point except any of these special delimiters:
-
-- Unicode control characters (U+0000 through U+001F)
-- ` `, `,`, `.`, `"`, `\` (U+0020, U+002C, U+002E, U+0022, U+005C)
-- `=`, `$`, `%` (U+003D, U+0024, U+0025)
-- `(`, `)`, `[`, `]`, `{`, `}` (U+0028, U+0029, U+005B, U+005D, U+007B, U+007D)
-
 ### Quoted Strings
+
+If you want to include any of the special delimiters not allowed in bare strings, excluding newlines, then you can surround the string with quotation marks -- standard escape sequences apply.
 
 ```zomb
 key = "a_quoted_string"  // this is fine, but unnecessary
@@ -79,8 +81,6 @@ key = "a quoted string"  // this _is_ necessary
 ```zomb
 "this is okay too" = value
 ```
-
-If you want to include any of the special delimiters not allowed in bare strings, excluding newlines, then you can surround the string with quotation marks -- standard escape sequences apply.
 
 > _Keys (since they're strings too) may also be quoted._
 
@@ -121,6 +121,8 @@ dialog = \\blah blah
 
 ### Objects
 
+Objects group a set of [key-value](#key-value-pairs) pairs, inside a pair of curly braces.
+
 ```zomb
 file = {
     type = ZOMB
@@ -128,11 +130,11 @@ file = {
 }
 ```
 
-Objects group a set of [key-value](#key-value-pairs) pairs, inside a pair of curly braces.
-
 > _Keys in the same object, must be unique._
 
 ### Arrays
+
+Arrays group a set of [values](#value-types), inside square brackets.
 
 ```zomb
 "people jobs" = [
@@ -141,8 +143,6 @@ Objects group a set of [key-value](#key-value-pairs) pairs, inside a pair of cur
     "Dog Walker"
 ]
 ```
-
-Arrays group a set of [values](#value-types), inside square brackets.
 
 ## Macros
 
@@ -237,8 +237,8 @@ $person(name, job) = {
         pay = "1,000,000"
         coworkers = [
             Lindsay
-            Kai
             Penny
+            Kai
             Maeve
             Xena
         ]
@@ -252,6 +252,8 @@ last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 
 You've already seen comments in the previous examples, but now you know that comments are a real thing!
 
+Comments start with `//` and run to the end of the line.
+
 ```zomb
 // this is a comment on its own line
 
@@ -262,18 +264,16 @@ key = [ // comments can be pretty much anywhere
 ]
 ```
 
-Comments start with `//` and run to the end of the line.
-
 ## And that's it!
 
-So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed learning about this little file format, and I appreciate you taking the time!
+So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed learning about this little file format. It's useful to me and I certainly hope it's useful for you.
 
 # Current Implementations
 
 - [`zomb-zig`](https://github.com/Zooce/zomb-zig)
 - _planning on doing a Python implementation soon_
 
-> _Hopefully more coming soon!_
+> _Hopefully even more coming soon!_
 
 ---
 
