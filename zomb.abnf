@@ -49,7 +49,7 @@ macro-def-params = macro-params-begin [ padding ] string-list macro-params-end
 
 string-list = string *( separator string ) [ separator ]
 
-macro-value = macro-param / string / raw-string / macro-object / macro-array / macro-macro-expr
+macro-value = macro-param-val / macro-string-val / macro-object-val / macro-array-val / macro-macro-expr-val
 
 macro-param = percent string
 
@@ -63,9 +63,21 @@ macro-array = array-begin [ padding ] [ macro-value-list ] array-end
 
 macro-value-list = macro-value *( separator macro-value ) [ separator ]
 
-macro-macro-expr = macro-key [ padding ] [ macro-macro-expr-params ] *( macro-accessor )
+macro-macro-expr = macro-key [ macro-macro-expr-params ] *( macro-accessor )
 
-macro-macro-expr-params = macro-params-begin [ padding ] macro-value-list macro-params-end
+macro-macro-expr-params = [ padding ] macro-params-begin [ padding ] macro-value-list macro-params-end
+
+; macro-expr and macro-param in the following rules must evaluate to the corresponding type
+
+macro-string-val = any-string *( plus ( any-string / macro-macro-expr / macro-param ) )
+
+macro-object-val = macro-object *( plus ( macro-object / macro-macro-expr / macro-param ) )
+
+macro-array-val = macro-array *( plus ( macro-array / macro-macro-expr / macro-param ) )
+
+macro-macro-expr-val = macro-macro-expr *( plus ( any-string / macro-object / macro-array / macro-macro-expr / macro-param ) )
+
+macro-param-val = macro-param *( plus ( any-string / macro-object / macro-array / macro-macro-expr / macro-param ) )
 
 ;; Strings
 

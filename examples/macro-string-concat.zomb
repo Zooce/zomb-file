@@ -1,0 +1,7 @@
+$macro(p1) = { t = [ 1 %p1 3 ] }
+$test =  one + "hllow" + \\ hi there +
+    + one + two + "g" + $macro(a).t.0 + "f fas " + "g 35 q34se \t" + \\
+\\
+\\
+\\asdfasdf
+      + helo
