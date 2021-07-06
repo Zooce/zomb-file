@@ -55,7 +55,7 @@ A bare string may contain any Unicode code point except any of these special del
 
 - Unicode control characters (U+0000 through U+001F)
 - ` `, `,`, `.`, `"`, `\` (U+0020, U+002C, U+002E, U+0022, U+005C)
-- `=`, `$`, `%` (U+003D, U+0024, U+0025)
+- `=`, `$`, `%`, `+` (U+003D, U+0024, U+0025, U+002B)
 - `(`, `)`, `[`, `]`, `{`, `}` (U+0028, U+0029, U+005B, U+005D, U+007B, U+007D)
 
 ```zomb
@@ -277,7 +277,7 @@ greetings = [
 ]
 ```
 
-> _This does put an added burden on implementations since types must be checked._
+> _Implementations must be sure that types are checked._
 
 ## Comments
 
