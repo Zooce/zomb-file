@@ -248,6 +248,37 @@ $person(name, job) = {
 last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 ```
 
+## Concatenation
+
+ZOMB files allow same-type value concatenation (string-string, object-object, and array-array) with the `+` operator.
+
+```zomb
+key = bare_string + "quoted string" + \\raw-
+                                      \\string
+```
+
+```zomb
+key = { a = hello } + { b = world }
+```
+
+```zomb
+key = [ 1 2 3 ] + [ 4 5 6 ]
+```
+
+This feature is mostly useful when macros are involved.
+
+```zomb
+$greet(name) = "Hello, " + %name
+
+greetings = [
+    $greet(Zooce)
+    $greet(Bruno)
+    $greet(Kenny)
+]
+```
+
+> _This does put an added burden on implementations since types must be checked._
+
 ## Comments
 
 You've already seen comments in the previous examples, but now you know that comments are a real thing!
@@ -268,10 +299,11 @@ key = [ // comments can be pretty much anywhere
 
 So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed learning about this little file format. It's useful to me and I certainly hope it's useful for you.
 
-# Current Implementations
+# Current Implementations and Utilities
 
-- [`zomb-zig`](https://github.com/Zooce/zomb-zig)
-- _planning on doing a Python implementation soon_
+- [`zomb-zig`](https://github.com/Zooce/zomb-zig): ZOMB reader/writer library
+- _planning on a Python implementation soon_
+- _planning on a ZOMB to JSON/TOML/YAML utility soon_
 
 > _Hopefully even more coming soon!_
 
