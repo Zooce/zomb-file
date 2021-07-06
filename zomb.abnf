@@ -3,6 +3,7 @@
 ;; This ABNF definition of ZOMB is heavily influenced by the TOML ABNF found at:
 ;;      https://github.com/toml-lang/toml/blob/master/toml.abnf
 ;;
+;; Credit to http://instaparse.mojombo.com/ as it was used for testing.
 
 zomb = decl *( separator decl ) [ separator ]
 
@@ -12,7 +13,7 @@ decl = kv-pair / macro-def / comment
 
 kv-pair = string [ padding ] equals [ padding ] value
 
-value = string / raw-string / object / array / macro-expr
+value = string-val / object-val / array-val / macro-expr-val
 
 object = object-begin [ padding ] [ kv-pair-list ] object-end
 
@@ -22,11 +23,21 @@ array = array-begin [ padding ] [ value-list ] array-end
 
 value-list = value *( separator value ) [ separator ]
 
-macro-expr = macro-key [ padding ] [ macro-expr-params ] *( macro-accessor )
+macro-expr = macro-key [ macro-expr-params ] *( macro-accessor )
 
-macro-expr-params = macro-params-begin [ padding ] value-list macro-params-end
+macro-expr-params = [ padding ] macro-params-begin [ padding ] value-list macro-params-end
 
 macro-accessor = dot string
+
+; macro-expr in the following rules must evaluate to the corresponding type
+
+string-val = any-string *( plus ( any-string / macro-expr ) )
+
+object-val = object *( plus ( object / macro-expr ) )
+
+array-val = array *( plus ( array / macro-expr ) )
+
+macro-expr-val = macro-expr *( plus ( any-string / object / array / macro-expr ) )
 
 ;; Macros
 
@@ -60,6 +71,8 @@ macro-macro-expr-params = macro-params-begin [ padding ] macro-value-list macro-
 
 string = bare-string / quoted-string
 
+any-string = string / raw-string
+
 bare-string = 1*( non-delimiter )
 
 quoted-string = DQUOTE escaped-string DQUOTE
@@ -70,9 +83,9 @@ raw-string = raw-line *( newline [ padding ] raw-line )
 
 raw-line = %x5C.5C *any
 
-non-delimiter = %x21 / %x23 / %x26-27 / %x2A-2B / %x2D / %x2F-3C / %x3E-5A / %x5E-7A / %x7C / %x7E-10FFFF
+non-delimiter = %x21 / %x23 / %x26-27 / %x2A / %x2D / %x2F-3C / %x3E-5A / %x5E-7A / %x7C / %x7E-10FFFF
 
-;         "        \      b      f      n      r      t      uXXXX
+;         "        \      b      f      n      r      t        uXXXX
 escaped = DQUOTE / %x5C / %x62 / %x66 / %x6E / %x72 / %x74 / ( %x75 4HEXDIG )
 
 non-escaped = WSP / %x21 / %x23-5B / %x5D-10FFFF
@@ -88,6 +101,8 @@ dot = %x2E
 dollar = %x24
 
 equals = %x3D
+
+plus = [ padding ] %x2B [ padding ]
 
 comma = %x2C
 
