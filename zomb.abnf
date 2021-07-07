@@ -5,31 +5,59 @@
 ;;
 ;; Credit to http://instaparse.mojombo.com/ as it was used for testing.
 
+;; Top-Level Rules
+
 zomb = decl *( separator decl ) [ separator ]
 
 decl = kv-pair / macro-def / comment
 
-;; Key-Value Pairs
+;; Key-Value Pair Rules
 
 kv-pair = string [ padding ] equals [ padding ] value
 
 value = string-val / object-val / array-val / macro-expr-val
 
+;; Object Rules
+
 object = object-begin [ padding ] [ kv-pair-list ] object-end
 
-kv-pair-list = kv-pair *( separator kv-pair ) [ separator ]
+macro-object = object-begin [ padding ] [ macro-kv-pair-list ] object-end
+
+macro-kv-pair = string [ padding ] equals [ padding ] macro-value
+
+;; Array Rules
 
 array = array-begin [ padding ] [ value-list ] array-end
 
-value-list = value *( separator value ) [ separator ]
+macro-array = array-begin [ padding ] [ macro-value-list ] array-end
+
+;; Macro Expression Rules
 
 macro-expr = macro-key [ macro-expr-params ] *( macro-accessor )
 
 macro-expr-params = [ padding ] macro-params-begin [ padding ] value-list macro-params-end
 
+macro-macro-expr = macro-key [ macro-macro-expr-params ] *( macro-accessor )
+
+macro-macro-expr-params = [ padding ] macro-params-begin [ padding ] macro-value-list macro-params-end
+
 macro-accessor = dot string
 
-; macro-expr in the following rules must evaluate to the corresponding type
+;; Macro Definition Rules
+
+macro-def = macro-key [ padding ] [ macro-def-params ] [ padding ] equals [ padding ] macro-value
+
+macro-def-params = macro-params-begin [ padding ] string-list macro-params-end
+
+macro-value = macro-param-val / macro-string-val / macro-object-val / macro-array-val / macro-macro-expr-val
+
+macro-key = dollar string
+
+macro-param = percent string
+
+;; Value and Concatenation Rules
+
+; NOTE: macro-expr and macro-param in the following rules must evaluate to the corresponding type
 
 string-val = any-string *( plus ( any-string / macro-expr ) )
 
@@ -38,36 +66,6 @@ object-val = object *( plus ( object / macro-expr ) )
 array-val = array *( plus ( array / macro-expr ) )
 
 macro-expr-val = macro-expr *( plus ( any-string / object / array / macro-expr ) )
-
-;; Macros
-
-macro-def = macro-key [ padding ] [ macro-def-params ] [ padding ] equals [ padding ] macro-value
-
-macro-key = dollar string
-
-macro-def-params = macro-params-begin [ padding ] string-list macro-params-end
-
-string-list = string *( separator string ) [ separator ]
-
-macro-value = macro-param-val / macro-string-val / macro-object-val / macro-array-val / macro-macro-expr-val
-
-macro-param = percent string
-
-macro-object = object-begin [ padding ] [ macro-kv-pair-list ] object-end
-
-macro-kv-pair = string [ padding ] equals [ padding ] macro-value
-
-macro-kv-pair-list = macro-kv-pair *( separator macro-kv-pair ) [ separator ]
-
-macro-array = array-begin [ padding ] [ macro-value-list ] array-end
-
-macro-value-list = macro-value *( separator macro-value ) [ separator ]
-
-macro-macro-expr = macro-key [ macro-macro-expr-params ] *( macro-accessor )
-
-macro-macro-expr-params = [ padding ] macro-params-begin [ padding ] macro-value-list macro-params-end
-
-; macro-expr and macro-param in the following rules must evaluate to the corresponding type
 
 macro-string-val = any-string *( plus ( any-string / macro-macro-expr / macro-param ) )
 
@@ -79,7 +77,19 @@ macro-macro-expr-val = macro-macro-expr *( plus ( any-string / macro-object / ma
 
 macro-param-val = macro-param *( plus ( any-string / macro-object / macro-array / macro-macro-expr / macro-param ) )
 
-;; Strings
+;; List Rules
+
+string-list = string *( separator string ) [ separator ]
+
+kv-pair-list = kv-pair *( separator kv-pair ) [ separator ]
+
+value-list = value *( separator value ) [ separator ]
+
+macro-kv-pair-list = macro-kv-pair *( separator macro-kv-pair ) [ separator ]
+
+macro-value-list = macro-value *( separator macro-value ) [ separator ]
+
+;; String Rules
 
 string = bare-string / quoted-string
 
@@ -102,11 +112,11 @@ escaped = DQUOTE / %x5C / %x62 / %x66 / %x6E / %x72 / %x74 / ( %x75 4HEXDIG )
 
 non-escaped = WSP / %x21 / %x23-5B / %x5D-10FFFF
 
-;; Comment
+;; Comment Rule
 
 comment = %x2F.2F *any
 
-;; Special Delimiters
+;; Special Delimiter Rules
 
 dot = %x2E
 
@@ -132,7 +142,7 @@ macro-params-begin = %x28
 
 macro-params-end = %x29
 
-;; Other
+;; Other Rules
 
 newline = LF / CRLF
 

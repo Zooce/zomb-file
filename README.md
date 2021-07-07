@@ -1,6 +1,6 @@
-# The ZOMB file format _(!!! WORK IN PROGRESS !!!)_
+# The ZOMB file format
 
-Welcome to the ZOMB file format specification. It's basically a mix of JSON and TOML...but with macros!
+Welcome to the ZOMB file format specification. It's sort of a mix between JSON and TOML...plus macros!
 
 > _Similar to how JSON is pronounced "J-son", ZOMB is pronounced "zom-B" 🧟._
 
@@ -30,7 +30,6 @@ key = value
 > _Keys at the same level, must be unique._
 
 > _Using `=` as the separator is taken from the [TOML](https://toml.io/en/) file format._
-
 
 ### Value Types
 
@@ -250,7 +249,7 @@ last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 
 ## Concatenation
 
-ZOMB files allow same-type value concatenation (string-string, object-object, and array-array) with the `+` operator.
+ZOMB files allow same-type value concatenation (string-string, object-object, and array-array) with the `+` operator. The following examples are boring, but they get the point across.
 
 ```zomb
 key = bare_string + "quoted string" + \\raw-
@@ -265,7 +264,7 @@ key = { a = hello } + { b = world }
 key = [ 1 2 3 ] + [ 4 5 6 ]
 ```
 
-This feature is mostly useful when macros are involved.
+This feature becomes very useful when macros are involved.
 
 ```zomb
 $greet(name) = "Hello, " + %name
