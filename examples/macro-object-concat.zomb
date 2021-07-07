@@ -1,0 +1,4 @@
+$macro(p1) = { t = [ 1 %p1 3 ] }
+$test = {
+    a = { key = value } + $macro(a) + { hello = goodbye, one = $two }
+} + $macro(g)

@@ -1,6 +1,6 @@
-# The ZOMB file format _(!!! WORK IN PROGRESS !!!)_
+# The ZOMB file format
 
-Welcome to the ZOMB file format specification. It's basically a mix of JSON and TOML...but with macros!
+Welcome to the ZOMB file format specification. It's sort of a mix between JSON and TOML...plus macros!
 
 > _Similar to how JSON is pronounced "J-son", ZOMB is pronounced "zom-B" 🧟._
 
@@ -31,7 +31,6 @@ key = value
 
 > _Using `=` as the separator is taken from the [TOML](https://toml.io/en/) file format._
 
-
 ### Value Types
 
 There are only four types of values:
@@ -55,7 +54,7 @@ A bare string may contain any Unicode code point except any of these special del
 
 - Unicode control characters (U+0000 through U+001F)
 - ` `, `,`, `.`, `"`, `\` (U+0020, U+002C, U+002E, U+0022, U+005C)
-- `=`, `$`, `%` (U+003D, U+0024, U+0025)
+- `=`, `$`, `%`, `+` (U+003D, U+0024, U+0025, U+002B)
 - `(`, `)`, `[`, `]`, `{`, `}` (U+0028, U+0029, U+005B, U+005D, U+007B, U+007D)
 
 ```zomb
@@ -248,6 +247,37 @@ $person(name, job) = {
 last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 ```
 
+## Concatenation
+
+ZOMB files allow same-type value concatenation (string-string, object-object, and array-array) with the `+` operator. The following examples are boring, but they get the point across.
+
+```zomb
+key = bare_string + "quoted string" + \\raw-
+                                      \\string
+```
+
+```zomb
+key = { a = hello } + { b = world }
+```
+
+```zomb
+key = [ 1 2 3 ] + [ 4 5 6 ]
+```
+
+This feature becomes very useful when macros are involved.
+
+```zomb
+$greet(name) = "Hello, " + %name
+
+greetings = [
+    $greet(Zooce)
+    $greet(Bruno)
+    $greet(Kenny)
+]
+```
+
+> _Implementations must be sure that types are checked._
+
 ## Comments
 
 You've already seen comments in the previous examples, but now you know that comments are a real thing!
@@ -268,10 +298,11 @@ key = [ // comments can be pretty much anywhere
 
 So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed learning about this little file format. It's useful to me and I certainly hope it's useful for you.
 
-# Current Implementations
+# Current Implementations and Utilities
 
-- [`zomb-zig`](https://github.com/Zooce/zomb-zig)
-- _planning on doing a Python implementation soon_
+- [`zomb-zig`](https://github.com/Zooce/zomb-zig): ZOMB reader/writer library
+- _planning on a Python implementation soon_
+- _planning on a ZOMB to JSON/TOML/YAML utility soon_
 
 > _Hopefully even more coming soon!_
 
