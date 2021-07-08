@@ -191,7 +191,7 @@ Macros can have a set of parameters, declared after the key inside a set of pare
 $macro(p1 p2) = [ %p1 %p2 ]
 ```
 
-Macro parameters can have default values. All parameters after the first one with a default value, must also have default values.
+Macro parameters can have default values. All parameters _without_ default values must come before those with default values.
 
 ```zomb
 $macro(p1, p2 = 4, p3 = [ a b c ]) = {
