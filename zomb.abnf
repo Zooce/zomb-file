@@ -47,17 +47,19 @@ macro-accessor = dot string
 
 macro-def = macro-key [ padding ] [ macro-def-params ] [ padding ] equals [ padding ] macro-value
 
-macro-def-params = macro-params-begin [ padding ] string-list macro-params-end
+macro-def-params = macro-params-begin [ padding ] macro-param-list macro-params-end
 
 macro-value = macro-param-val / macro-string-val / macro-object-val / macro-array-val / macro-macro-expr-val
 
+macro-param-def = string [ padding ] equals [ padding ] value
+
 macro-key = dollar string
 
-macro-param = percent string
+macro-param-use = percent string
 
 ;; Value and Concatenation Rules
 
-; NOTE: macro-expr and macro-param in the following rules must evaluate to the corresponding type
+; NOTE: macro-expr and macro-param-use in the following rules must evaluate to the corresponding type
 
 string-val = any-string *( plus ( any-string / macro-expr ) )
 
@@ -67,23 +69,25 @@ array-val = array *( plus ( array / macro-expr ) )
 
 macro-expr-val = macro-expr *( plus ( any-string / object / array / macro-expr ) )
 
-macro-string-val = any-string *( plus ( any-string / macro-macro-expr / macro-param ) )
+macro-string-val = any-string *( plus ( any-string / macro-macro-expr / macro-param-use ) )
 
-macro-object-val = macro-object *( plus ( macro-object / macro-macro-expr / macro-param ) )
+macro-object-val = macro-object *( plus ( macro-object / macro-macro-expr / macro-param-use ) )
 
-macro-array-val = macro-array *( plus ( macro-array / macro-macro-expr / macro-param ) )
+macro-array-val = macro-array *( plus ( macro-array / macro-macro-expr / macro-param-use ) )
 
-macro-macro-expr-val = macro-macro-expr *( plus ( any-string / macro-object / macro-array / macro-macro-expr / macro-param ) )
+macro-macro-expr-val = macro-macro-expr *( plus ( any-string / macro-object / macro-array / macro-macro-expr / macro-param-use ) )
 
-macro-param-val = macro-param *( plus ( any-string / macro-object / macro-array / macro-macro-expr / macro-param ) )
+macro-param-val = macro-param-use *( plus ( any-string / macro-object / macro-array / macro-macro-expr / macro-param-use ) )
 
 ;; List Rules
-
-string-list = string *( separator string ) [ separator ]
 
 kv-pair-list = kv-pair *( separator kv-pair ) [ separator ]
 
 value-list = value *( separator value ) [ separator ]
+
+macro-param-list = string *( separator string ) [ separator [ macro-param-def-list ] ]
+
+macro-param-def-list = macro-param-def *( separator macro-param-def ) [ separator ]
 
 macro-kv-pair-list = macro-kv-pair *( separator macro-kv-pair ) [ separator ]
 

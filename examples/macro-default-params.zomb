@@ -1,0 +1,5 @@
+$macro(z a = { k = v }, b = 4 c = [ f {} $co]) = {
+    a = %a , b = %b, c = %c
+}
+
+test = $macro(4)
