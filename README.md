@@ -6,9 +6,9 @@ Welcome to the ZOMB file format specification. It's sort of a mix between JSON a
 
 ## Why use a ZOMB file?
 
-1. No more unwieldy repetition
-2. Simple, intuitive, and convenient
-3. Easy conversion to other popular file formats
+Are your data/config files plagued with unwieldy repetition? Don't like all those double quotes everywhere? Don't want your file format to dictate your value types? Do you wish commas were optional?
+
+If your answer to any of these questions is "yes", then a ZOMB file might be what you're looking for.
 
 ## General Rules, Guidelines, and Definitions
 
@@ -183,7 +183,7 @@ $"macro two" = Goodbye
 
 ### Macro Parameters
 
-Macros can have a set of parameters, declared after the key inside a set of parentheses. Parameters can be used as values inside the macro by placing a percent sign (`%`) before the parameter name. This eliminates the need for complicated scoping rules. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value. _This is to prevent you from doing unnecessary things_.
+Macros can have a set of parameters declared after the key inside a set of parentheses. Parameters can be used as values inside the macro by placing a percent sign (`%`) before the parameter name. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value.
 
 > _An empty set of parentheses is **invalid**._
 
@@ -196,6 +196,8 @@ Macro parameters can have default values. All parameters _without_ default value
 ```zomb
 $macro(p1, p2 = 4, p3 = [ a b c ]) = {
     a = %p1
+    b = %p2
+    c = %p3
 }
 ```
 
@@ -225,7 +227,7 @@ $person(name, job) = {
 "cool person" = $person(Zooce, { type = Dishwasher, pay = 100000 })
 ```
 
-If one or more of the macro's parameters has default values, you may use the default values by not passing in values for them.
+If one or more of the macro's parameters has default values, you may use the default values by _not_ passing in values for them.
 
 ```zomb
 $item(id, label = null) = {
@@ -241,7 +243,7 @@ items = [
 
 If the macro's value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays) by following the macro expression with one or more access patterns like `.key` or `.2` for example.
 
-> _You may **NOT** access individual keys or indexes of parameter values. Why? Because you pass them in when using a macro expression. This is to prevent you from doing unnecessary things._
+> _You may **NOT** access individual keys or indexes of parameter values. Why? Because you already pass them in when using a macro expression. This is to prevent you from doing unnecessary things._
 
 ```zomb
 $person(name, job) = {
