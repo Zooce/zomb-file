@@ -6,9 +6,9 @@ Welcome to the ZOMB file format specification. It's sort of a mix between JSON a
 
 ## Why use a ZOMB file?
 
-1. No more unwieldy repetition
-2. Simple, intuitive, and convenient
-3. Easy conversion to other popular file formats
+Are your data/config files plagued with unwieldy repetition? Don't like all those double quotes everywhere? Don't want your file format to dictate your value types? Do you wish commas were optional?
+
+If your answer to any of these questions is "yes", then a ZOMB file might be what you're looking for.
 
 ## General Rules, Guidelines, and Definitions
 
@@ -155,7 +155,7 @@ $names = {
     file = ZOMB
     "the best" = $chuck
 }
-$person(name, job) = {  // sometimes commas are nice (still not required though)
+$person(name, job = "Software Engineer") = {  // sometimes commas are nice (still not required though)
     name = %name
     job = %job
 }
@@ -164,39 +164,42 @@ people = [
     $person($names.file, $jobs.0)
     $person($names.god, $jobs.1)
     $person($names."the best", $jobs.2)
-    $person(Zooce "Software Engineer")
+    $person(Zooce)
 ]
 ```
 
 There's a lot going on there, but I bet you already kind of get it, don't you?
 
-### Defining a Macro
-
 Macros are defined just like key-value pairs, but with some special rules.
 
-1. Macro keys can be either a bare string or a quoted string, with a leading dollar sign (`$`).
-2. Macros can have a set of parameters, declared after the key inside a set of parentheses. _An empty set of parentheses is **invalid**._
-3. Parameters can be used as values inside the macro's value by placing a percent sign (`%`) before the parameter name. This eliminates the need for complicated scoping rules.
-4. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value. _This is to prevent you from doing unnecessary things_.
-4. Recursion in macro definitions is forbidden. Here are a couple of examples:
-    ```zomb
-    $name = $name  // not cool
-    ```
+### Macro Keys
 
-    ```zomb
-    $macro1(p1 p2) = {
-        this = %p1
-        that = $macro2(%p2) // this uses `$macro1` -- forbidden
-    }
-    $macro2(a) = $macro1(a, 5)
-    ```
+The key for a macro can be either a bare string or a quoted string, with a leading dollar sign (`$`).
 
-    ```zomb
-    $okay(param) = [ 1 2 %param 3 ]
+```zomb
+$macro1 = Hello
+$"macro two" = Goodbye
+```
 
-    // this _is_ okay, because it is not recursion
-    my_key = $okay($okay(4))
-    ```
+### Macro Parameters
+
+Macros can have a set of parameters declared after the key inside a set of parentheses. Parameters can be used as values inside the macro by placing a percent sign (`%`) before the parameter name. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value.
+
+> _An empty set of parentheses is **invalid**._
+
+```zomb
+$macro(p1 p2) = [ %p1 %p2 ]
+```
+
+Macro parameters can have default values. All parameters _without_ default values must come before those with default values.
+
+```zomb
+$macro(p1, p2 = 4, p3 = [ a b c ]) = {
+    a = %p1
+    b = %p2
+    c = %p3
+}
+```
 
 ### Using a Macro
 
@@ -213,7 +216,7 @@ names = [
 ]
 ```
 
-If the macro has parameters, you pass in a value for each. Parameter values can be any type.
+If the macro has parameters, you pass in a value for each. Parameter values can be any type and must be given in the order in which they are defined.
 
 ```zomb
 $person(name, job) = {
@@ -224,9 +227,23 @@ $person(name, job) = {
 "cool person" = $person(Zooce, { type = Dishwasher, pay = 100000 })
 ```
 
+If one or more of the macro's parameters has default values, you may use the default values by _not_ passing in values for them.
+
+```zomb
+$item(id, label = null) = {
+    id = %id
+    label = %label
+}
+
+items = [
+    $item(abc)
+    $item(def, "Cool Beans")
+]
+```
+
 If the macro's value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays) by following the macro expression with one or more access patterns like `.key` or `.2` for example.
 
-> _You may **NOT** access individual keys or indexes of parameter values. Why? Because you pass them in when using a macro expression. This is to prevent you from doing unnecessary things._
+> _You may **NOT** access individual keys or indexes of parameter values. Why? Because you already pass them in when using a macro expression. This is to prevent you from doing unnecessary things._
 
 ```zomb
 $person(name, job) = {
@@ -245,6 +262,29 @@ $person(name, job) = {
 }
 
 last_coworker = $person(Zooce Dishwasher).job.coworkers.3
+```
+
+### (No) Recursion
+
+Recursion in macro definitions is forbidden.
+
+```zomb
+$name = $name  // not cool
+```
+
+```zomb
+$macro1(p1 p2) = {
+    this = %p1
+    that = $macro2(%p2) // this uses `$macro1` -- forbidden
+}
+$macro2(a) = $macro1(a, 5)
+```
+
+```zomb
+$okay(param) = [ 1 2 %param 3 ]
+
+// this _is_ okay, because it is not recursion
+my_key = $okay($okay(4))
 ```
 
 ## Concatenation
