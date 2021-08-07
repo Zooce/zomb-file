@@ -1,6 +1,6 @@
 # The ZOMB file format
 
-Welcome to the ZOMB file format specification. It's sort of a mix between JSON and TOML...plus macros!
+Welcome to the ZOMB file format specification. It's sort of a 90/10 mix of JSON and TOML...plus macros!
 
 > _Similar to how JSON is pronounced "J-son", ZOMB is pronounced "zom-B" 🧟._
 
@@ -91,8 +91,8 @@ For fun, let's describe these in a couple of examples:
 
 ```zomb
 dialog = \\This is a raw string. Raw strings start with '\\' and run to the end
-         \\of the line. They continue until either an empty line or another
-         \\token is encountered.
+         \\of the line. They continue until either an empty line or a non-raw
+         \\string token is encountered.
          \\
          \\Raw strings may contain any characters without the need for an escape
          \\sequence.
@@ -118,6 +118,25 @@ dialog = \\blah blah
 
 > _Using `\\` as the delimiter is taken from the [Zig](https://ziglang.org) programming language._
 
+### _Empty Strings_
+
+Empty strings are allowed, but they only work if they're quoted or raw.
+
+```zomb
+// empty quoted string - okay
+key = ""
+```
+
+```zomb
+// empty raw string - okay
+key = \\
+```
+
+```zomb
+// empty bare string - obviously an error!
+key =
+```
+
 ### Objects
 
 Objects group a set of [key-value](#key-value-pairs) pairs, inside a pair of curly braces.
@@ -127,6 +146,10 @@ file = {
     type = ZOMB
     path = "/home/zooce/passwords.zomb"  // DON'T STORE YOUR PASSWORDS LIKE THIS!
 }
+```
+
+```zomb
+key = {}  // empty objects are okay
 ```
 
 > _Keys in the same object, must be unique._
@@ -143,9 +166,13 @@ Arrays group a set of [values](#value-types), inside square brackets.
 ]
 ```
 
+```zomb
+key = []  // empty arrays are okay
+```
+
 ## Macros
 
-Macros are the special sauce of ZOMB files. They allow you to write reusable strings, objects, and arrays. Let's see an example:
+Macros are the special sauce of ZOMB files. They allow you to write reusable values. Let's see an example:
 
 ```zomb
 $chuck = "Chuck Norris"
@@ -155,7 +182,8 @@ $names = {
     file = ZOMB
     "the best" = $chuck
 }
-$person(name, job = "Software Engineer") = {  // sometimes commas are nice (still not required though)
+// sometimes commas are nice (still not required though)
+$person(name, job = "Software Engineer") = {
     name = %name
     job = %job
 }
@@ -168,7 +196,7 @@ people = [
 ]
 ```
 
-There's a lot going on there, but I bet you already kind of get it, don't you?
+There's a lot going on there, but I bet you already kind of get it.
 
 Macros are defined just like key-value pairs, but with some special rules.
 
@@ -191,7 +219,7 @@ Macros can have a set of parameters declared after the key inside a set of paren
 $macro(p1 p2) = [ %p1 %p2 ]
 ```
 
-Macro parameters can have default values. All parameters _without_ default values must come before those with default values.
+Macro parameters can have default values. All parameters _without_ default values must come **before** those _with_ default values.
 
 ```zomb
 $macro(p1, p2 = 4, p3 = [ a b c ]) = {
@@ -203,7 +231,7 @@ $macro(p1, p2 = 4, p3 = [ a b c ]) = {
 
 ### Using a Macro
 
-To use a macro as a value (called a "Macro Expression"), you specify its key (including the `$`).
+To use a macro as a value, called a "Macro Expression", you specify its key (including the `$`).
 
 ```zomb
 $name = Gene
@@ -216,7 +244,7 @@ names = [
 ]
 ```
 
-If the macro has parameters, you pass in a value for each. Parameter values can be any type and must be given in the order in which they are defined.
+If the macro has parameters, you pass in a value for each inside a set of parentheses. Parameter values can be any type and must be given in the order in which they are defined.
 
 ```zomb
 $person(name, job) = {
@@ -243,7 +271,7 @@ items = [
 
 If the macro's value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays) by following the macro expression with one or more access patterns like `.key` or `.2` for example.
 
-> _You may **NOT** access individual keys or indexes of parameter values. Why? Because you already pass them in when using a macro expression. This is to prevent you from doing unnecessary things._
+> _You may **NOT** access individual keys or indexes of parameter values. Why? Because you're the one who passes them in when using a macro expression, so it doesn't really make sense to do that._
 
 ```zomb
 $person(name, job) = {
@@ -315,8 +343,6 @@ greetings = [
     $greet(Kenny)
 ]
 ```
-
-> _Implementations must be sure that types are checked._
 
 ## Comments
 
