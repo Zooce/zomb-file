@@ -1,0 +1,6 @@
+$macro(a, b, c) = %a + %b + %c
+key = $macro($a, ?, g) % [
+    [a]
+    ["this.that"]
+]
+x = 5
