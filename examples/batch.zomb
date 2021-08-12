@@ -1,6 +1,9 @@
-$macro(a, b, c) = %a + %b + %c
-key = $macro($a, ?, g) % [
+$x(a, b, c = 2) = %a + %b + %c
+k = $x($a, ?, g) % [
     [a]
-    ["this.that"]
+    ["t.h"]
 ]
-x = 5
+$y(a, b) = $x(? ? %b) % [
+    [%a b]
+    [c d]
+]
