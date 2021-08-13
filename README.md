@@ -1,14 +1,10 @@
 # The ZOMB file format
 
-Welcome to the ZOMB file format specification. It's sort of a 90/10 mix of JSON and TOML...plus macros!
+Welcome to the ZOMB file format specification. It's sort of a 90/10 mix of JSON and TOML...plus a small but _exhilarating_ set of special features!
 
 > _Similar to how JSON is pronounced "J-son", ZOMB is pronounced "zom-B" 🧟._
 
-## Why use a ZOMB file?
-
-Are your data/config files plagued with unwieldy repetition? Don't like all those double quotes everywhere? Don't want your file format to dictate your value types? Do you wish commas were optional?
-
-If your answer to any of these questions is "yes", then a ZOMB file might be what you're looking for.
+> _Why did I make this? Read about it in the [Why](#why) section._
 
 ## General Rules, Guidelines, and Definitions
 
@@ -33,12 +29,11 @@ key = value
 
 ### Value Types
 
-There are only four types of values:
+There are only three value types:
 
 - [String](#strings)
 - [Object](#objects)
 - [Array](#arrays)
-- [Macro Expression](#using-a-macro) (see [Macros](#macros))
 
 ## Strings
 
@@ -48,13 +43,15 @@ Strings can be simple and yet they have plenty of complicated scenarios. ZOMB fi
 - [Quoted String](#quoted-strings): A string that may contain special delimiters and escape sequences
 - [Raw String](#raw-strings): A string that may contain any characters with no restrictions
 
+> _Why not just quoted strings like in JSON? Read about it in the [Why](#why) section._
+
 ### Bare Strings
 
 A bare string may contain any Unicode code point except any of these special delimiters:
 
-- Unicode control characters (U+0000 through U+001F)
+- Unicode control characters (U+0000 through U+001F -- this includes tabs and newlines)
 - ` `, `,`, `.`, `"`, `\` (U+0020, U+002C, U+002E, U+0022, U+005C)
-- `=`, `$`, `%`, `+` (U+003D, U+0024, U+0025, U+002B)
+- `$`, `%`, `+`, `=`, `?` (U+0024, U+0025, U+002B, U+003D, U+003F)
 - `(`, `)`, `[`, `]`, `{`, `}` (U+0028, U+0029, U+005B, U+005D, U+007B, U+007D)
 
 ```zomb
@@ -170,29 +167,60 @@ Arrays group a set of [values](#value-types), inside square brackets.
 key = []  // empty arrays are okay
 ```
 
+## Concatenation
+
+ZOMB files allow same-type value concatenation (string-string, object-object, and array-array) with the `+` operator. The following examples are boring, but they get the point across.
+
+```zomb
+key = bare_string + "quoted string" + \\raw-
+                                      \\string
+```
+
+```zomb
+key = { a = hello } + { b = world }
+```
+
+> _Keys in the resulting object must be unique._
+
+```zomb
+key = [ 1 2 3 ] + [ 4 5 6 ]
+```
+
+## Comments
+
+You've already seen comments in the previous examples, but now you know that comments are a real thing!
+
+Comments start with `//` and run to the end of the line.
+
+```zomb
+// this is a comment on its own line
+
+hello = goodbye // this is a comment at the end of a line
+
+key = [ // comments can be pretty much anywhere
+    1 2 3
+]
+```
+
 ## Macros
 
 Macros are the special sauce of ZOMB files. They allow you to write reusable values. Let's see an example:
 
 ```zomb
-$chuck = "Chuck Norris"
-$jobs = [ Hacker Dishwasher "Dog Walker" ]
-$names = {
-    god = Thor
-    file = ZOMB
-    "the best" = $chuck
+$color = {
+    black = #000000
+    red = #ff0000
+    hot_pink = #ff43a1
 }
 // sometimes commas are nice (still not required though)
-$person(name, job = "Software Engineer") = {
-    name = %name
-    job = %job
+$colorize(scope, color = $color.black) = {
+    scope = %scope
+    settings = { foreground = %color }
 }
-
-people = [
-    $person($names.file, $jobs.0)
-    $person($names.god, $jobs.1)
-    $person($names."the best", $jobs.2)
-    $person(Zooce)
+tokenColors = [
+    $colorize("editor.background", $color.black)
+    $colorize("editor.foreground", $color.red)
+    $colorize("comments", $color.hot_pink)
 ]
 ```
 
@@ -211,7 +239,7 @@ $"macro two" = Goodbye
 
 ### Macro Parameters
 
-Macros can have a set of parameters declared after the key inside a set of parentheses. Parameters can be used as values inside the macro by placing a percent sign (`%`) before the parameter name. If your macro does have parameters, each parameter _must_ be used at least once in the macro's value.
+Macros can have a set of parameters declared after the key inside a set of parentheses. Parameters can be used as values inside the macro by placing a percent sign (`%`) before the parameter name. If your macro does have parameters, then each parameter _must_ be used at least once in the macro's value.
 
 > _An empty set of parentheses is **invalid**._
 
@@ -227,6 +255,29 @@ $macro(p1, p2 = 4, p3 = [ a b c ]) = {
     b = %p2
     c = %p3
 }
+```
+
+### (No) Recursion
+
+Recursion in macro definitions is forbidden. _These examples will also give you a preview on how to use macros after you've defined them._
+
+```zomb
+$name = $name  // not cool
+```
+
+```zomb
+$macro1(p1 p2) = {
+    this = %p1
+    that = $macro2(%p2) // this uses `$macro1` -- forbidden
+}
+$macro2(a) = $macro1(a, 5)
+```
+
+```zomb
+$okay(param) = [ 1 2 %param 3 ]
+
+// this _is_ okay, because it is not recursion
+my_key = $okay($okay(4))
 ```
 
 ### Using a Macro
@@ -269,9 +320,17 @@ items = [
 ]
 ```
 
+If you pass a value for a parameter with a default value, then you must also pass values for all parameters before that one.
+
+```zomb
+$test(a, b=1, c=2) = [ %a %b %c ]
+
+t = test(3, 4) // a == 1, b == 4, c == 2
+```
+
 If the macro's value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays) by following the macro expression with one or more access patterns like `.key` or `.2` for example.
 
-> _You may **NOT** access individual keys or indexes of parameter values. Why? Because you're the one who passes them in when using a macro expression, so it doesn't really make sense to do that._
+> _You may **NOT** access individual keys or indexes of parameter values (i.e., `%a.key`). Why? Because you can pass any value as a parameter argument, so there's no guarantee it will conform to the access pattern._
 
 ```zomb
 $person(name, job) = {
@@ -279,84 +338,59 @@ $person(name, job) = {
     job = {
         title = %job
         pay = "1,000,000"
-        coworkers = [
-            Lindsay
-            Penny
-            Kai
-            Maeve
-            Xena
-        ]
+        coworkers = [ Linz Beegs Bug Munchy Xena ]
     }
 }
 
 last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 ```
 
-### (No) Recursion
+### Batching Macro Expressions
 
-Recursion in macro definitions is forbidden.
+Here's where things get pretty cool (at least in my opinion). What if you want to use a macro many times where only a subset of the parameters to change but another subset to be the same? With macros you can apply a set of arguments for a subset of parameters while keeping other parameters static.
 
-```zomb
-$name = $name  // not cool
-```
+The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in an array of value arrays. The result of this operation is an array of the batched macro. The following is only a small example of this, but you can imagine having many of these values you need to batch, and this clearly becomes _very_ useful.
 
 ```zomb
-$macro1(p1 p2) = {
-    this = %p1
-    that = $macro2(%p2) // this uses `$macro1` -- forbidden
+$color = {
+    black = #000000
+    red = #ff0000
 }
-$macro2(a) = $macro1(a, 5)
+$colorize(scope, color, alpha) = {
+    scope = %scope
+    settings = { foreground = %color + %alpha }
+}
+// with macro batching
+tokenColors =
+    $colorize(?, $color.black, ?) % [
+        [ "editor.background" 0.3 ]
+        [ "editor.border"    0.4 ]
+        // ... many more
+    ] +
+    $colorize(?, $color.red, ?) % [
+        [ "editor.foreground"      0.5 ]
+        [ "editor.highlightBorder" 1.0 ]
+        // ... many more
+    ]
 ```
 
-```zomb
-$okay(param) = [ 1 2 %param 3 ]
-
-// this _is_ okay, because it is not recursion
-my_key = $okay($okay(4))
-```
-
-## Concatenation
-
-ZOMB files allow same-type value concatenation (string-string, object-object, and array-array) with the `+` operator. The following examples are boring, but they get the point across.
+Here's an equivalent ZOMB file without using macro batching. If you had many more values here, you can see how the batching syntax will be much easier to maintain over time.
 
 ```zomb
-key = bare_string + "quoted string" + \\raw-
-                                      \\string
-```
-
-```zomb
-key = { a = hello } + { b = world }
-```
-
-```zomb
-key = [ 1 2 3 ] + [ 4 5 6 ]
-```
-
-This feature becomes very useful when macros are involved.
-
-```zomb
-$greet(name) = "Hello, " + %name
-
-greetings = [
-    $greet(Zooce)
-    $greet(Bruno)
-    $greet(Kenny)
-]
-```
-
-## Comments
-
-You've already seen comments in the previous examples, but now you know that comments are a real thing!
-
-Comments start with `//` and run to the end of the line.
-
-```zomb
-// this is a comment on its own line
-
-hello = goodbye // this is a comment at the end of a line
-
-key = [ // comments can be pretty much anywhere
-    1 2 3
+$color = {
+    black = #000000
+    red = #ff0000
+}
+$colorize(scope, color, alpha) = {
+    scope = %scope
+    settings = { foreground = %color + %alpha }
+}
+// without macro batching
+tokenColors = [
+    $colorize("editor.background", $color.black, 0.3)
+    $colorize("editor.border", $color.black, 0.4)
+    $colorize("editor.foreground", $color.red, 0.5)
+    $colorize("editor.highlightBorder", $color.red, 1.0)
 ]
 ```
 
@@ -367,10 +401,36 @@ So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed
 # Current Implementations and Utilities
 
 - [`zomb-zig`](https://github.com/Zooce/zomb-zig): ZOMB reader/writer library
-- _planning on a Python implementation soon_
-- _planning on a ZOMB to JSON/TOML/YAML utility soon_
+- _planning on a Python implementation
+- _planning on a ZOMB to JSON/TOML/YAML utility_
 
 > _Hopefully even more coming soon!_
+
+# Why
+
+## Why was the ZOMB file format created?
+
+If you've ever maintained a color scheme for either Sublime Text or VS Code then you know how unwieldy the repetition becomes in those JSON files. I tried looking for other file formats that would reduce the repetition which I could then convert to JSON, and that didn't pan out. Then I tried creating a little text-replacement script that would parse, extract, and replace special reusable patterns in comments and strings -- that helped, but didn't really solve the problem.
+
+So, since I didn't have a solution I was satisfied with, I figured I'd have some fun and create something new, and here you are reading about it now!
+
+## Why have 3 different types of strings and not just quoted strings like in JSON?
+
+There are a few reasons for this:
+
+* In many simple cases bare strings are all you really need. If your keys and values don't have any special characters (like punctuation) then quoting all of them seems silly.
+* Double quotes _are_ useful to show the boundaries of a key or a value that really _should_ contain spaces or special characters. No need to completely throw double quotes away.
+* Raw strings are really nice for large multi-line string values (like dialog sequences in a game, for example).
+
+## Why only strings and not numbers and booleans?
+
+TL;DR - Your values are strings to begin with...you can interpret them however your program needs them.
+
+Your program is going to read in all values for any config-like file (such as JSON) as a string. With those strings, you must parse them to interpret them the way to expect (like as numbers or booleans or strings). Even if you use a library for this (which you most certainly probably do) the library has to do that same thing.
+
+I think it should be up to the user how their value strings are interpreted. Expecting a particular value to be a number, then use your programming language's string parsing utilities to parse it as a number, for example.
+
+Additionally, this takes the burden of ensuring standardized number and boolean formats off of the ZOMB library implementations.
 
 ---
 
