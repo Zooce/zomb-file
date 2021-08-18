@@ -214,7 +214,9 @@ key = [ // comments can be pretty much anywhere
 
 ## Macros
 
-If you've made it this far, you're _amazing_ and you're about to be _amazed_! Macros are the special sauce of ZOMB files. They allow you to write reusable values. Let's see an example first:
+If you've made it this far, you're _awesome_ and I appreciate you getting this far. You're about to learn the feature that makes ZOMB files worth your time.
+
+Macros are the special sauce of ZOMB files. They allow you to write reusable values. Let's see an example first:
 
 ```zomb
 $color = {
@@ -368,7 +370,7 @@ last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 
 Here's where things get even cooler. What if you want to use a macro many times where only a subset of the parameters change? With macros you can apply a set of arguments for a subset of parameters while keeping other parameters static.
 
-The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in an array of value arrays. The result of this operation is an array of the batched macro. The following is only a small example of this, but imagine having many of these values you need to batch, and this clearly becomes _very_ useful.
+The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in an array of value arrays. The result of this operation is an array of the batched macro. This is difficult to describe with words, so let's see a simple example.
 
 ```zomb
 $color = {
@@ -393,7 +395,7 @@ tokenColors =
     ]
 ```
 
-Here's an equivalent ZOMB file without using macro batching. If you had many more values here, you can see how the batching syntax will be much easier to maintain over time.
+Now let's see an equivalent ZOMB file _without_ using macro batching. If you had many more values here, you can see how the batching syntax will be much easier to maintain over time.
 
 ```zomb
 $color = {
@@ -422,7 +424,7 @@ So, what do you think? Like it? Hate it? Either way, I hope you at least enjoyed
 # Current Implementations and Utilities
 
 - [`zomb-zig`](https://github.com/Zooce/zomb-zig): ZOMB reader/writer library
-- _planning on a Python implementation
+- _planning on a Python implementation_
 - _planning on a ZOMB to JSON/TOML/YAML utility_
 
 > _Hopefully even more coming soon!_
@@ -445,11 +447,11 @@ There are a few reasons for this:
 * Double quotes _are_ useful to show the boundaries of a key or a value that really _should_ contain spaces or special characters. No need to completely throw double quotes away.
 * Raw strings are really nice for large multi-line string values (like dialog sequences in a game, for example).
 
-## Why only strings and not numbers or booleans?
+## Why only strings and not numbers or Booleans?
 
 TL;DR - Your values are strings to begin with...you can interpret them however your program needs them.
 
-Your program is going to read in all values for any generic data file (such as JSON) as a string. With those strings, you must parse them to interpret them the way to expect (e.g., as numbers or booleans or strings or whatever). Even if you use a library for this (which you most certainly probably do) the library has to do that same thing.
+Your program is going to read in all values for any generic data file (such as JSON) as a string. With those strings, you must parse them to interpret them the way to expect (e.g., as numbers or Booleans or strings or whatever). Even if you use a library for this (which you most certainly probably do) the library has to do that same thing.
 
 I think it should be up to the user how their value strings are interpreted. If you're expecting a particular value to be a number, then use your programming language's string parsing utilities to parse it as a number, for example.
 
