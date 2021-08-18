@@ -134,7 +134,7 @@ key = \\
 key =
 ```
 
-### Objects
+## Objects
 
 Objects group a set of [key-value](#key-value-pairs) pairs, inside a pair of curly braces.
 
@@ -151,7 +151,7 @@ key = {}  // empty objects are okay
 
 > _Keys in the same object, must be unique._
 
-### Arrays
+## Arrays
 
 Arrays group a set of [values](#value-types), inside square brackets.
 
@@ -166,6 +166,16 @@ Arrays group a set of [values](#value-types), inside square brackets.
 ```zomb
 key = []  // empty arrays are okay
 ```
+
+## Wait there's more!
+
+Congratulations! With the knowledge you've gained so far, you can write a valid ZOMB file. Key-value pairs, objects, arrays, strings...easy. However, I hope you're wondering something like, "That's it? I mean it's basically just a _really nice_ variant of JSON. _(And the person who made this is brilliant.)_"
+
+Alright, let's get to some of the extra features of ZOMB files:
+
+- [Concatenation](concatenation)
+- [Comments](comments)
+- [Macros](macros)
 
 ## Concatenation
 
@@ -204,7 +214,7 @@ key = [ // comments can be pretty much anywhere
 
 ## Macros
 
-Macros are the special sauce of ZOMB files. They allow you to write reusable values. Let's see an example:
+If you've made it this far, you're _amazing_ and you're about to be _amazed_! Macros are the special sauce of ZOMB files. They allow you to write reusable values. Let's see an example first:
 
 ```zomb
 $color = {
@@ -218,7 +228,7 @@ $colorize(scope, color = $color.black) = {
     settings = { foreground = %color }
 }
 tokenColors = [
-    $colorize("editor.background", $color.black)
+    $colorize("editor.background")
     $colorize("editor.foreground", $color.red)
     $colorize("comments", $color.hot_pink)
 ]
@@ -226,9 +236,11 @@ tokenColors = [
 
 There's a lot going on there, but I bet you already kind of get it.
 
+### Defining a Macro
+
 Macros are defined just like key-value pairs, but with some special rules.
 
-### Macro Keys
+#### Macro Keys
 
 The key for a macro can be either a bare string or a quoted string, with a leading dollar sign (`$`).
 
@@ -237,11 +249,13 @@ $macro1 = Hello
 $"macro two" = Goodbye
 ```
 
-### Macro Parameters
+#### Macro Parameters
 
-Macros can have a set of parameters declared after the key inside a set of parentheses. Parameters can be used as values inside the macro by placing a percent sign (`%`) before the parameter name. If your macro does have parameters, then each parameter _must_ be used at least once in the macro's value.
+Macros can have a set of parameters declared inside a set of parentheses after the key. Parameters are accessible inside the macro by placing a percent sign (`%`) before the parameter name.
 
-> _An empty set of parentheses is **invalid**._
+A couple of rules:
+- An empty set of parentheses is **invalid**
+- Each parameter _must_ be used at least once in the macro's value
 
 ```zomb
 $macro(p1 p2) = [ %p1 %p2 ]
@@ -257,7 +271,12 @@ $macro(p1, p2 = 4, p3 = [ a b c ]) = {
 }
 ```
 
-### (No) Recursion
+```zomb
+// Error: parameters with no default value must come first
+$macro(p1 = 2, p2) = [ %p1, %p2 ]
+```
+
+#### (No) Recursion
 
 Recursion in macro definitions is forbidden. _These examples will also give you a preview on how to use macros after you've defined them._
 
@@ -320,7 +339,7 @@ items = [
 ]
 ```
 
-If you pass a value for a parameter with a default value, then you must also pass values for all parameters before that one.
+If you pass a value for a parameter with a default value, then you must also pass values for all parameters preceding that one.
 
 ```zomb
 $test(a, b=1, c=2) = [ %a %b %c ]
@@ -347,9 +366,9 @@ last_coworker = $person(Zooce Dishwasher).job.coworkers.3
 
 ### Batching Macro Expressions
 
-Here's where things get pretty cool (at least in my opinion). What if you want to use a macro many times where only a subset of the parameters to change but another subset to be the same? With macros you can apply a set of arguments for a subset of parameters while keeping other parameters static.
+Here's where things get even cooler. What if you want to use a macro many times where only a subset of the parameters change? With macros you can apply a set of arguments for a subset of parameters while keeping other parameters static.
 
-The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in an array of value arrays. The result of this operation is an array of the batched macro. The following is only a small example of this, but you can imagine having many of these values you need to batch, and this clearly becomes _very_ useful.
+The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in an array of value arrays. The result of this operation is an array of the batched macro. The following is only a small example of this, but imagine having many of these values you need to batch, and this clearly becomes _very_ useful.
 
 ```zomb
 $color = {
@@ -363,13 +382,13 @@ $colorize(scope, color, alpha) = {
 // with macro batching
 tokenColors =
     $colorize(?, $color.black, ?) % [
-        [ "editor.background" 0.3 ]
-        [ "editor.border"    0.4 ]
+        [ "editor.background" 55 ]
+        [ "editor.border"     66 ]
         // ... many more
     ] +
     $colorize(?, $color.red, ?) % [
-        [ "editor.foreground"      0.5 ]
-        [ "editor.highlightBorder" 1.0 ]
+        [ "editor.foreground"      7f ]
+        [ "editor.highlightBorder" ff ]
         // ... many more
     ]
 ```
@@ -387,10 +406,12 @@ $colorize(scope, color, alpha) = {
 }
 // without macro batching
 tokenColors = [
-    $colorize("editor.background", $color.black, 0.3)
-    $colorize("editor.border", $color.black, 0.4)
-    $colorize("editor.foreground", $color.red, 0.5)
-    $colorize("editor.highlightBorder", $color.red, 1.0)
+    $colorize("editor.background", $color.black, 55)
+    $colorize("editor.border", $color.black, 66)
+    // ... many more
+    $colorize("editor.foreground", $color.red, 7f)
+    $colorize("editor.highlightBorder", $color.red, ff)
+    // ... many more
 ]
 ```
 
@@ -414,6 +435,8 @@ If you've ever maintained a color scheme for either Sublime Text or VS Code then
 
 So, since I didn't have a solution I was satisfied with, I figured I'd have some fun and create something new, and here you are reading about it now!
 
+However, if you've read through this file in its entirety, you'll notice that the ZOMB file format can be used for pretty much anything that JSON, TOML, YAML, and other generic data file formats are useful for.
+
 ## Why have 3 different types of strings and not just quoted strings like in JSON?
 
 There are a few reasons for this:
@@ -422,13 +445,13 @@ There are a few reasons for this:
 * Double quotes _are_ useful to show the boundaries of a key or a value that really _should_ contain spaces or special characters. No need to completely throw double quotes away.
 * Raw strings are really nice for large multi-line string values (like dialog sequences in a game, for example).
 
-## Why only strings and not numbers and booleans?
+## Why only strings and not numbers or booleans?
 
 TL;DR - Your values are strings to begin with...you can interpret them however your program needs them.
 
-Your program is going to read in all values for any config-like file (such as JSON) as a string. With those strings, you must parse them to interpret them the way to expect (like as numbers or booleans or strings). Even if you use a library for this (which you most certainly probably do) the library has to do that same thing.
+Your program is going to read in all values for any generic data file (such as JSON) as a string. With those strings, you must parse them to interpret them the way to expect (e.g., as numbers or booleans or strings or whatever). Even if you use a library for this (which you most certainly probably do) the library has to do that same thing.
 
-I think it should be up to the user how their value strings are interpreted. Expecting a particular value to be a number, then use your programming language's string parsing utilities to parse it as a number, for example.
+I think it should be up to the user how their value strings are interpreted. If you're expecting a particular value to be a number, then use your programming language's string parsing utilities to parse it as a number, for example.
 
 Additionally, this takes the burden of ensuring standardized number and boolean formats off of the ZOMB library implementations.
 
