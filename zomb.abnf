@@ -7,7 +7,7 @@
 
 ;; Top-Level Rules
 
-zomb = decl *( separator decl ) [ separator ]
+zomb-file = decl *( separator decl ) [ separator ]
 
 decl = kv-pair / macro-def / comment
 
@@ -15,7 +15,7 @@ decl = kv-pair / macro-def / comment
 
 kv-pair = string [ padding ] equals [ padding ] value
 
-value = string-val / object-val / array-val / macro-expr-val
+macro-kv-pair = string [ padding ] equals [ padding ] macro-value
 
 ;; Object Rules
 
@@ -23,25 +23,39 @@ object = object-begin [ padding ] [ kv-pair-list ] object-end
 
 macro-object = object-begin [ padding ] [ macro-kv-pair-list ] object-end
 
-macro-kv-pair = string [ padding ] equals [ padding ] macro-value
-
 ;; Array Rules
 
 array = array-begin [ padding ] [ value-list ] array-end
 
+array-req = array-begin [ padding ] value-list array-end
+
 macro-array = array-begin [ padding ] [ macro-value-list ] array-end
+
+macro-array-req = array-begin [ padding ] macro-value-list array-end
+
+batch-macro-arg-array = array-begin [ padding ] array-req-list array-end
+
+batch-macro-macro-arg-array = array-begin [ padding ] macro-array-req-list array-end
 
 ;; Macro Expression Rules
 
 macro-expr = macro-key [ macro-expr-params ] *( macro-accessor )
 
-macro-expr-params = [ padding ] macro-params-begin [ padding ] value-list macro-params-end
-
 macro-macro-expr = macro-key [ macro-macro-expr-params ] *( macro-accessor )
+
+batch-macro-expr = macro-key batch-macro-expr-params *( macro-accessor ) [ padding ] percent [ padding ] batch-macro-arg-array
+
+batch-macro-macro-expr = macro-key batch-macro-macro-expr-params *( macro-accessor ) [ padding ] percent [ padding ] batch-macro-macro-arg-array
+
+;; Macro Expression Param Rules
+
+macro-expr-params = [ padding ] macro-params-begin [ padding ] value-list macro-params-end
 
 macro-macro-expr-params = [ padding ] macro-params-begin [ padding ] macro-value-list macro-params-end
 
-macro-accessor = dot string
+batch-macro-expr-params = [ padding ] macro-params-begin [ padding ] batch-param-list macro-params-end
+
+batch-macro-macro-expr-params = [ padding ] macro-params-begin [ padding ] batch-macro-param-list macro-params-end
 
 ;; Macro Definition Rules
 
@@ -49,15 +63,25 @@ macro-def = macro-key [ padding ] [ macro-def-params ] [ padding ] equals [ padd
 
 macro-def-params = macro-params-begin [ padding ] macro-param-list macro-params-end
 
-macro-value = macro-param-val / macro-string-val / macro-object-val / macro-array-val / macro-macro-expr-val
-
 macro-param-def = string [ padding ] equals [ padding ] value
+
+;; Macro Utility Rules
 
 macro-key = dollar string
 
 macro-param-use = percent string
 
+macro-accessor = dot string
+
 ;; Value and Concatenation Rules
+
+value = string-val / object-val / array-val / macro-expr-val / batch-macro-expr-val
+
+macro-value = macro-param-val / macro-string-val / macro-object-val / macro-array-val / macro-macro-expr-val / batch-macro-macro-expr-val
+
+batch-param-value = question / value
+
+batch-macro-param-value = question / macro-value
 
 ; NOTE: macro-expr and macro-param-use in the following rules must evaluate to the corresponding type
 
@@ -65,9 +89,13 @@ string-val = any-string *( plus ( any-string / macro-expr ) )
 
 object-val = object *( plus ( object / macro-expr ) )
 
-array-val = array *( plus ( array / macro-expr ) )
+array-val = array *( plus ( array / macro-expr / batch-macro-expr ) )
 
-macro-expr-val = macro-expr *( plus ( any-string / object / array / macro-expr ) )
+macro-expr-val = macro-expr *( plus ( any-string / object / array / macro-expr / batch-macro-expr ) )
+
+batch-macro-expr-val = batch-macro-expr *( plus ( array / macro-expr / batch-macro-expr ) )
+
+batch-macro-macro-expr-val = batch-macro-macro-expr *( plus ( array / macro-expr / batch-macro-macro-expr ) )
 
 macro-string-val = any-string *( plus ( any-string / macro-macro-expr / macro-param-use ) )
 
@@ -85,6 +113,10 @@ kv-pair-list = kv-pair *( separator kv-pair ) [ separator ]
 
 value-list = value *( separator value ) [ separator ]
 
+array-req-list = array-req *( separator array-req ) [ separator ]
+
+macro-array-req-list = macro-array-req *( separator macro-array-req ) [ separator ]
+
 macro-param-list = string *( separator string ) [ separator [ macro-param-def-list ] ]
 
 macro-param-def-list = macro-param-def *( separator macro-param-def ) [ separator ]
@@ -92,6 +124,13 @@ macro-param-def-list = macro-param-def *( separator macro-param-def ) [ separato
 macro-kv-pair-list = macro-kv-pair *( separator macro-kv-pair ) [ separator ]
 
 macro-value-list = macro-value *( separator macro-value ) [ separator ]
+
+value-list-req-sep = value *( separator value ) separator
+
+; NOTE: implementations must require at least one `?` in this list
+batch-param-list = batch-param-value *( separator batch-param-value ) [ separator ]
+
+batch-macro-param-list = batch-macro-param-value *( separator batch-macro-param-value ) [ separator ]
 
 ;; String Rules
 
@@ -109,7 +148,7 @@ raw-string = raw-line *( newline [ padding ] raw-line )
 
 raw-line = %x5C.5C *any
 
-non-delimiter = %x21 / %x23 / %x26-27 / %x2A / %x2D / %x2F-3C / %x3E-5A / %x5E-7A / %x7C / %x7E-10FFFF
+non-delimiter = %x21 / %x23 / %x26-27 / %x2A / %x2D / %x2F-3C / %x3E / %x40-5A / %x5E-7A / %x7C / %x7E-10FFFF
 
 ;         "        \      b      f      n      r      t        uXXXX
 escaped = DQUOTE / %x5C / %x62 / %x66 / %x6E / %x72 / %x74 / ( %x75 4HEXDIG )
@@ -133,6 +172,8 @@ plus = [ padding ] %x2B [ padding ]
 comma = %x2C
 
 percent = %x25
+
+question = %x3F
 
 object-begin = %x7B
 
