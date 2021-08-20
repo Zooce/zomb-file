@@ -1,6 +1,6 @@
 # The ZOMB file format
 
-Welcome to the ZOMB file format specification. It's sort of a 90/10 mix of JSON and TOML...plus a small but _exhilarating_ set of special features!
+Welcome to the ZOMB file format specification. It's sort of a 90/10 mix of JSON and TOML...plus a small, useful set of special features!
 
 > _Similar to how JSON is pronounced "J-son", ZOMB is pronounced "zom-B" 🧟._
 
@@ -13,7 +13,7 @@ Welcome to the ZOMB file format specification. It's sort of a 90/10 mix of JSON 
 - "Whitespace" is defined as a tab (U+0009) or a space (U+0020)
 - "Newline" is defined as an LF (U+000A) or a CRLF (U+000D U+000A)
 - Whitespace and newlines are ignored unless stated otherwise
-- Commas as separators are optional - see [Commas](#commas)
+- Commas as separators are optional - (see [Why](#why))
 
 ## Key-Value Pairs
 
@@ -23,7 +23,7 @@ A key-value pair associates a key (which is a string) with a value.
 key = value
 ```
 
-> _Keys at the same level, must be unique._
+> _Keys at the same level must be unique._
 
 > _Using `=` as the separator is taken from the [TOML](https://toml.io/en/) file format._
 
@@ -94,8 +94,7 @@ dialog = \\This is a raw string. Raw strings start with '\\' and run to the end
          \\Raw strings may contain any characters without the need for an escape
          \\sequence.
          \\
-         \\Newlines are included in raw strings except for the last very last
-         \\one.
+         \\Newlines are included in raw strings except for the very last one.
 ```
 
 ```zomb
@@ -136,7 +135,7 @@ key =
 
 ## Objects
 
-Objects group a set of [key-value](#key-value-pairs) pairs, inside a pair of curly braces.
+Objects group a set of [key-value](#key-value-pairs) pairs inside a pair of curly braces.
 
 ```zomb
 file = {
@@ -149,11 +148,11 @@ file = {
 key = {}  // empty objects are okay
 ```
 
-> _Keys in the same object, must be unique._
+> _Keys in the same object must be unique._
 
 ## Arrays
 
-Arrays group a set of [values](#value-types), inside square brackets.
+Arrays group a set of [values](#value-types) inside square brackets.
 
 ```zomb
 "people jobs" = [
@@ -214,9 +213,9 @@ key = [ // comments can be pretty much anywhere
 
 ## Macros
 
-If you've made it this far, you're _awesome_ and I appreciate you getting this far. You're about to learn the feature that makes ZOMB files worth your time.
+If you've made it this far, you're _awesome_ and I think you'll find this feature awesome too. You're about to learn what makes ZOMB files worth your time.
 
-Macros are the special sauce of ZOMB files. They allow you to write reusable values. Let's see an example first:
+Macros are the special sauce of ZOMB files. They allow you to write reusable (and optionally, parameterized) values. Let's start with an example:
 
 ```zomb
 $color = {
@@ -242,9 +241,13 @@ There's a lot going on there, but I bet you already kind of get it.
 
 Macros are defined just like key-value pairs, but with some special rules.
 
+#### Location
+
+Macros can only be defined at the top-level, meaning macros may _not_ be defined inside any other value.
+
 #### Macro Keys
 
-The key for a macro can be either a bare string or a quoted string, with a leading dollar sign (`$`).
+The key for a macro can be either a bare string or a quoted string, but with a leading dollar sign (`$`).
 
 ```zomb
 $macro1 = Hello
@@ -255,7 +258,7 @@ $"macro two" = Goodbye
 
 Macros can have a set of parameters declared inside a set of parentheses after the key. Parameters are accessible inside the macro by placing a percent sign (`%`) before the parameter name.
 
-A couple of rules:
+A couple of sub-rules:
 - An empty set of parentheses is **invalid**
 - Each parameter _must_ be used at least once in the macro's value
 
@@ -291,7 +294,8 @@ $macro1(p1 p2) = {
     this = %p1
     that = $macro2(%p2) // this uses `$macro1` -- forbidden
 }
-$macro2(a) = $macro1(a, 5)
+$macro2(a) = $macro1(%a, 5)
+// this example also violates the definition-before-use rule (keep reading)
 ```
 
 ```zomb
@@ -304,6 +308,8 @@ my_key = $okay($okay(4))
 ### Using a Macro
 
 To use a macro as a value, called a "Macro Expression", you specify its key (including the `$`).
+
+> _You must define a macro before it is used as a value. This helps keep implementation simple, and most of the time helps with readability._
 
 ```zomb
 $name = Gene
@@ -346,12 +352,12 @@ If you pass a value for a parameter with a default value, then you must also pas
 ```zomb
 $test(a, b=1, c=2) = [ %a %b %c ]
 
-t = test(3, 4) // a == 1, b == 4, c == 2
+t = test(3, 4) // [ 3 4 2 ]
 ```
 
 If the macro's value is an object or an array, you can access individual keys or indexes (and even the keys or indexes of nested objects and arrays) by following the macro expression with one or more access patterns like `.key` or `.2` for example.
 
-> _You may **NOT** access individual keys or indexes of parameter values (i.e., `%a.key`). Why? Because you can pass any value as a parameter argument, so there's no guarantee it will conform to the access pattern._
+> _You may **NOT** access individual keys or indexes of parameter values (e.g., `%a.key`). Why? Because you can pass any value as a parameter argument, so there's no guarantee it will conform to the access pattern -- remember, this is **not** a full-fledged programming language._
 
 ```zomb
 $person(name, job) = {
@@ -359,18 +365,20 @@ $person(name, job) = {
     job = {
         title = %job
         pay = "1,000,000"
-        coworkers = [ Linz Beegs Bug Munchy Xena ]
+        coworkers = [ Linz, Beegs, Bug, Munchy, Xena ]
     }
 }
 
-last_coworker = $person(Zooce Dishwasher).job.coworkers.3
+last_coworker = $person(Zooce, Dishwasher).job.coworkers.3
 ```
 
 ### Batching Macro Expressions
 
 Here's where things get even cooler. What if you want to use a macro many times where only a subset of the parameters change? With macros you can apply a set of arguments for a subset of parameters while keeping other parameters static.
 
-The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in an array of value arrays. The result of this operation is an array of the batched macro. This is difficult to describe with words, so let's see a simple example.
+The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in a two-dimensional array of value after a `%` delimiter. The result of this operation is an array of the batched macro.
+
+Since this is relatively difficult to describe with words, let's see a simple example.
 
 ```zomb
 $color = {
@@ -395,7 +403,7 @@ tokenColors =
     ]
 ```
 
-Now let's see an equivalent ZOMB file _without_ using macro batching. If you had many more values here, you can see how the batching syntax will be much easier to maintain over time.
+Now let's see an equivalent ZOMB file _without_ using macro batching. If you had many more values here, you can imagine how the batching syntax will be much easier to maintain over time.
 
 ```zomb
 $color = {
@@ -456,6 +464,37 @@ Your program is going to read in all values for any generic data file (such as J
 I think it should be up to the user how their value strings are interpreted. If you're expecting a particular value to be a number, then use your programming language's string parsing utilities to parse it as a number, for example.
 
 Additionally, this takes the burden of ensuring standardized number and boolean formats off of the ZOMB library implementations.
+
+## Why are commas optional instead of either being required in some cases or being removed entirely?
+
+Commas are optional because in _most_ cases they don't really contribute to anything useful.
+
+```zomb
+// the commas here don't help anything
+key = {
+    a = 1,
+    b = 2,
+    c = 3,
+}
+```
+
+```zomb
+// this is perfectly clear without commas
+ports = [ 8000 9000 10000 ]
+```
+
+However, they are useful in a few cases (especially when many things are on a single line).
+
+```zomb
+$macro(a, b, c = 4) = [ %a %b %c ]
+key = macro(hello, goodbye, 5)
+```
+
+```zomb
+key = { a = 1, b = 2, c = 3 }
+```
+
+Ultimately, commas are purely for human readability _in single line_ cases like above. It's just as easy to parse a ZOMB file with or without commas as separators. So, instead of requiring them in only a few cases or eliminating them entirely, they're optional. Use them when you need it for readability and ignore them otherwise.
 
 ---
 
