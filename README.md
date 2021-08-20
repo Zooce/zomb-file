@@ -374,11 +374,9 @@ last_coworker = $person(Zooce, Dishwasher).job.coworkers.3
 
 ### Batching Macro Expressions
 
-Here's where things get even cooler. What if you want to use a macro many times where only a subset of the parameters change? With macros you can apply a set of arguments for a subset of parameters while keeping other parameters static.
+Here's where things get even cooler. What if you want to use a macro many times where only a subset of the parameters change? With macro batching you can apply a set of arguments for a subset of parameters while keeping other parameters static. Let's show this by an example.
 
-The parameters you want to batch are identified with a `?` and the sets of arguments for those parameters is specified in a two-dimensional array of value after a `%` delimiter. The result of this operation is an array of the batched macro.
-
-Since this is relatively difficult to describe with words, let's see a simple example.
+Say we define the following two macros:
 
 ```zomb
 $color = {
@@ -389,7 +387,27 @@ $colorize(scope, color, alpha) = {
     scope = %scope
     settings = { foreground = %color + %alpha }
 }
-// with macro batching
+```
+
+One way we might use these is like this:
+
+```zomb
+tokenColors = [
+    // things I want colored in black
+    $colorize("editor.background", $color.black, 55)
+    $colorize("editor.border", $color.black, 66)
+    // ... many more
+
+    // things I want colored in red
+    $colorize("editor.foreground", $color.red, 7f)
+    $colorize("editor.highlightBorder", $color.red, ff)
+    // ... many more
+]
+```
+
+This is fine, but if we have many of these `$colorize` macro expressions we kind of have another repetition problem. With macro batching we can do better:
+
+```zomb
 tokenColors =
     $colorize(?, $color.black, ?) % [
         [ "editor.background" 55 ]
@@ -403,27 +421,13 @@ tokenColors =
     ]
 ```
 
-Now let's see an equivalent ZOMB file _without_ using macro batching. If you had many more values here, you can imagine how the batching syntax will be much easier to maintain over time.
+There's a couple things you probably figured out:
 
-```zomb
-$color = {
-    black = #000000
-    red = #ff0000
-}
-$colorize(scope, color, alpha) = {
-    scope = %scope
-    settings = { foreground = %color + %alpha }
-}
-// without macro batching
-tokenColors = [
-    $colorize("editor.background", $color.black, 55)
-    $colorize("editor.border", $color.black, 66)
-    // ... many more
-    $colorize("editor.foreground", $color.red, 7f)
-    $colorize("editor.highlightBorder", $color.red, ff)
-    // ... many more
-]
-```
+- The parameters we want to vary have a `?` in their place.
+- The set of arguments we want to apply are specified in a two-dimensional array after the `%` delimiter.
+- The batched macro results in an array, so we can chain batches together with concatenation (`+`).
+
+One bonus of this is that it even kind of eliminates the need for those `// things I want colored in <color>` comments as it's somewhat self documenting.
 
 ## And that's it!
 
